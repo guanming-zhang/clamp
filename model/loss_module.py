@@ -1,0 +1,94 @@
+import torch
+import torch.nn.functional as F
+class CrossEntropy:
+    def __init__(self):
+        self.loss_name = "cross_entropy_loss"
+        self.loss = torch.nn.CrossEntropyLoss()
+    def __call__(self,preds,labels):
+        loss = self.loss(preds,labels)
+        return loss
+
+class InfoNCELoss:
+    def __init__(self,n_views,batch_size,tau):
+        self.loss_name = "info_nce_loss"
+        self.n_views = n_views
+        self.batch_size = batch_size  
+        self.tau = tau  
+        self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,"tau":tau}
+    def __call__(self,preds,labels):
+        sim = F.cosine_similarity(preds[:,None,:],preds[None,:,:],dim=-1)
+        mask_self = torch.eye(preds.shape[0],dtype=torch.bool,device=sim.device)
+        sim.masked_fill_(mask_self,0.0)
+        positive_mask = mask_self.roll(shifts=self.batch_size,dims=0)
+        sim /= self.tau
+        ll = torch.mean(-sim[positive_mask] + torch.logsumexp(sim,dim=-1))
+        return ll
+
+class EllipsoidPackingLoss:
+    def __init__(self,n_views,batch_size,lw0=1.0,lw1=1.0,lw2=1.0,n_pow=20,rs=2.0,margin=1e-7,record = False):
+        self.n_views = n_views
+        self.batch_size = batch_size
+        self.n_pow = n_pow # for power iteration
+        self.rs = rs # scale of radii
+        self.lw0 = lw0 # loss weight for the ellipsoid size
+        self.lw1 = lw1 # loss weight for the repulsion
+        self.lw2 = lw2 # loss weight for the alignment
+        self.margin = margin # no replsion if the distance between two elliposids < margins 
+        self.loss_name = "ellipoids_packing_loss"
+        self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
+                                "lw0":lw0,"lw1":lw1,"c2":lw2,"n_pow":n_pow,"rs":rs,
+                                "margin":margin}
+        self.record = record
+        if record:
+            self.status = dict()
+
+    def __call__(self,preds,labels):
+        # reshape (V*B)*O shape tensor to shape V*B*O 
+        preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        # centers.shape = B*O for B ellipsoids
+        centers = torch.mean(preds,dim=0)
+        centers_norm_max = torch.max(torch.linalg.vector_norm(centers,dim=1)) + 1e-6
+        centers = centers/centers_norm_max
+        preds = preds/centers_norm_max
+        preds = preds - centers
+        
+        # correlation matrix B*O*V B*V*O
+        corr = torch.matmul(torch.permute(preds,(1,2,0)), torch.permute(preds,(1,0,2)))/self.n_views # size B*O*O
+        # average radius for each ellipsoid
+        # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
+        # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
+        # average radii = sqrt(sum of eigenvalues/output_dim) 
+        # average radii.shape = (B,)
+        radii = self.rs*torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/preds.shape[-1] + 1e-12)
+        # calculate the largest eigenvectors by the [power iteration] method
+        corr_norm = torch.linalg.matrix_norm(corr,keepdim=True)
+        normalized_corr = corr/(corr_norm + 1e-6).detach()
+        corr_pow = torch.stack([torch.matrix_power(normalized_corr[i], self.n_pow) for i in range(corr.shape[0])])
+        b0 = torch.rand(preds.shape[-1],device=preds.device)
+        #print("corr=",corr)
+        eigens = torch.matmul(corr_pow,b0) # size = B*O
+        eigens = eigens/(torch.norm(eigens,dim=1,keepdim=True) + 1e-6) 
+        # loss 0: minimize the size of each ellipsoids
+        # the loss is normalized to make it dimensionless 
+        #    to make sure radii =0 and dij = inf is not a valid state 
+        ll = self.lw0*torch.sum(radii)/self.batch_size
+        # loss 1: repulsive loss
+        diff = centers[:, None, :] - centers[None, :, :]
+        dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
+        #print("dist=",dist_matrix)
+        #add 1e-6to avoid dividing by zero
+        sum_radii = radii[None,:] + radii[:,None] + 1e-6
+        nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
+        self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
+        mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
+        ll += ((1.0 - dist_matrix[mask]/sum_radii[mask].detach())**2).sum()*self.lw1/nbr_mask.float().sum()
+        # loss 2: alignment loss (1 - cosine-similarity)
+        sim = torch.matmul(eigens,eigens.transpose(0,1))**2
+        ll += (1.0 - torch.square(sim[mask])).sum()*self.lw2/nbr_mask.float().sum()
+        
+        if self.record:
+            self.status["corrs"] = corr.cpu().detach()
+            self.status["centers"] = centers.cpu().detach()
+            self.status["principle_vec"] = eigens.cpu().detach()
+            self.status["preds"] = preds.cpu().detach()
+        return ll
