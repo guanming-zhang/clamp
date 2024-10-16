@@ -58,7 +58,7 @@ class Config:
                         "SSL":["batch_size","backbone","use_projection_header","embedded_dim",
                             "optimizer","loss_function","n_epoch"],
                         "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epoch"],
-                        "TRAINING":["training_mode"]}
+                        "IO":["training_mode"]}
         #--------------check information -------------------
         for section in config.sections():
             print(f"[{section}]")
@@ -74,13 +74,12 @@ class Config:
                     if not option in config[section]:
                         raise ValueError(option + " is missing in the [{}] section".format(section))
         #----------------convert to properties----------------
-        self.INFO,self.DATA,self.SSL,self.LC,self.TRAINING = {},{},{},{},{}
-        self._set_options_type()
+        self.INFO,self.DATA,self.SSL,self.LC,self.IO= {},{},{},{},{}
         self._set_default()
         self._dataset_info()
         self._ssl_info()
         self._lc_info()
-        self._training_info()
+        self._io_info()
     def _check_existence(self,str_list,container):
         for s in str_list:
             if not s in container:
@@ -100,29 +99,15 @@ class Config:
             "blur_kernel_size":3,
             "use_batch_norm":"yes"
         }
-    def _set_options_type(self):
-        self.options_type = {
-            "num_gpus":"int",
+    def _options_type(self,section:str):
+        if section == "INFO":
+            options_type = {"num_nodes":"int","gpu_per_node":"int"}
+        elif section == "DATA":
+            options_type = {
             "dataset":"string",
             "augmentations":"string_list",
             "n_views":"int",
             "batch_size":"int",
-            "backbone":"string",
-            "use_projection_header":"boolean",
-            "proj_dim":"int",
-            "embedded_dim":"int",
-            "optimizer":"string",
-            "lr":"float",
-            "momentum":"float",
-            "loss_function":"string",
-            "lw0":"float",
-            "lw1":"float",
-            "lw2":"float",
-            "tau":"float",
-            "n_epoch":"int",
-            "output_dim":"int",
-            # for linear classification
-            "use_batch_norm":"boolean",
             # for image augmentations
             "crop_size":"int",
             "jitter_brightness":"float",
@@ -131,29 +116,65 @@ class Config:
             "jitter_hue":"float",
             "jitter_prob":"float",
             "grayscale_prob":"float",
-            "blur_kernel_size":"int",
-            "training_mode":"string",
-            "save_checkpoint_dir":"string",
-            "load_checkpoint_dir":"string"
-        }
+            "blur_kernel_size":"int"
+            }
+        elif section == "SSL":
+            options_type == {
+            "batch_size":"int",
+            "backbone":"string",
+            "use_projection_header":"boolean",
+            "proj_dim":"int",
+            "embedded_dim":"int",
+            "optimizer":"string",
+            "lr":"float",
+            "momentum":"float",
+            "weight_decay":"float",
+            "lars_eta":"float",
+            "loss_function":"string",
+            "lw0":"float",
+            "lw1":"float",
+            "lw2":"float",
+            # tau is for info nce loss
+            "tau":"float", 
+            "warmup_epochs":"int",
+            "n_epoch":"int"
+            }
+        elif section == "LC":
+            options_type = {
+            "out_dim":"int",
+            "use_batch_norm":"boolean",
+            "optimizer":"string",
+            "lr":"float",
+            "momentum":"float",
+            "weight_decay":"float",
+            "n_epochs":"int"
+            }
+        elif section == "IO":
+            options_type = {
+            "output_dir":"string",
+            "mode":"string"
+            }
+        return options_type
+    
     def _set_options(self,section:str,options:list):
+        options_type = self._options_type(section)
         for opt in options:
             if not (opt in self.options_type):
                 raise KeyError("[{}] is not a valid key, check the spelling or register it before using".format(opt))
-            if self.options_type[opt] == "int":
+            if options_type[opt] == "int":
                 getattr(self,section)[opt] = self.config[section].getint(opt)
-            elif self.options_type[opt] == "float":
+            elif options_type[opt] == "float":
                 getattr(self,section)[opt] = self.config[section].getfloat(opt)
-            elif self.options_type[opt] == "boolean":
+            elif options_type[opt] == "boolean":
                 getattr(self,section)[opt] = self.config[section].getboolean(opt)
-            elif self.options_type[opt] == "string":
+            elif options_type[opt] == "string":
                 getattr(self,section)[opt] = self.config[section].get(opt)
-            elif self.options_type[opt] == "string_list":
+            elif options_type[opt] == "string_list":
                 getattr(self,section)[opt] = self.config[section][opt].split(",")
-            elif self.options_type[opt] == "int_list":
+            elif options_type[opt] == "int_list":
                 str_list = self.config[section][opt].split(",")
                 getattr(self,section)[opt] = [int(s) for s in str_list]
-            elif self.options_type[opt] == "float_list":
+            elif options_type[opt] == "float_list":
                 str_list = self.config[section][opt].split(",")
                 getattr(self,section)[opt] = [float(s) for s in str_list]
 
@@ -165,8 +186,8 @@ class Config:
         self._set_options("SSL",self.config.options("SSL"))
     def _lc_info(self):
         self._set_options("LC",self.config.options("LC"))
-    def _training_info(self):
-        self._set_options("TRAINING",self.config.options("TRAINING"))
+    def _io_info(self):
+        self._set_options("IO",self.config.options("IO"))
 
 
 
