@@ -44,15 +44,17 @@ class EllipsoidPackingLoss:
 
     def __call__(self,preds,labels):
         # reshape (V*B)*O shape tensor to shape V*B*O 
+        com = torch.mean(preds,dim=0)
+        # make the center of mass of pres locate at the origin
+        preds = preds - com
         preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        # normalize to make all the preds in the unit sphere
+        preds_norm_max = torch.max(torch.linalg.vector_norm(preds,dim=1)) + 1e-6
+        preds =preds/preds_norm_max
         # centers.shape = B*O for B ellipsoids
         centers = torch.mean(preds,dim=0)
-        centers_norm_max = torch.max(torch.linalg.vector_norm(centers,dim=1)) + 1e-6
-        centers = centers/centers_norm_max
-        preds = preds/centers_norm_max
+        # correlation matrix 
         preds = preds - centers
-        
-        # correlation matrix B*O*V B*V*O
         corr = torch.matmul(torch.permute(preds,(1,2,0)), torch.permute(preds,(1,0,2)))/self.n_views # size B*O*O
         # average radius for each ellipsoid
         # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
@@ -92,3 +94,4 @@ class EllipsoidPackingLoss:
             self.status["principle_vec"] = eigens.cpu().detach()
             self.status["preds"] = preds.cpu().detach()
         return ll
+
