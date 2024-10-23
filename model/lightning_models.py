@@ -152,22 +152,20 @@ class LinearClassification(pl.LightningModule):
 
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
-            max_epochs:int,checkpoint_path:str):
+            max_epochs:int,every_n_epochs:int,checkpoint_path:str):
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
                          devices=1,
                          max_epochs=max_epochs,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                  #mode='min', 
                                                                   save_top_k = -1,
                                                                   save_last = True,
-                                                                  every_n_epochs = 1,
+                                                                  every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
-                                                                  filename = 'CLAP.ckpt',
-                                                                  monitor='train_epoch_loss'),
+                                                                  filename = 'CLAP.ckpt'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
+    
     trainer.logger._default_hp_metric = False 
-
     # Check whether pretrained model exists. If yes, load it and skip training
     pretrained_filename = os.path.join(checkpoint_path, 'CLAP.ckpt')
     if os.path.isfile(pretrained_filename):
@@ -176,8 +174,6 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     else:
         pl.seed_everything(137) # To be reproducable
         trainer.fit(model, train_loader)
-        print(trainer.checkpoint_callback.best_model_path)
-        print(trainer.checkpoint_callback.best_model_path)
-        model = CLAP.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
+        model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
     return model
         

@@ -52,7 +52,6 @@ class Config:
         config = configparser.ConfigParser()
         default_config = configparser.ConfigParser()
         default_config.read("./default_config.ini")
-        print({section: dict(default_config[section]) for section in default_config.sections()})
 
         config.read(input_file)
         self.loc = input_dir
@@ -97,7 +96,10 @@ class Config:
                 raise KeyError(s + " does not exists")
     def _options_type(self,section:str):
         if section == "INFO":
-            options_type = {"num_nodes":"int","gpu_per_node":"int"}
+            options_type = {
+            "num_nodes":"int",
+            "gpu_per_node":"int",
+            "num_workers":"int"}
         elif section == "DATA":
             options_type = {
             "dataset":"string",
@@ -112,7 +114,7 @@ class Config:
             "jitter_hue":"float",
             "jitter_prob":"float",
             "grayscale_prob":"float",
-            "blur_kernel_size":"int"
+            "blur_kernel_size":"int",
             }
         elif section == "SSL":
             options_type = {
@@ -134,7 +136,8 @@ class Config:
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
-            "n_epochs":"int"
+            "n_epochs":"int",
+            "update_ssl_model_every_n_epochs":"int"
             }
         elif section == "LC":
             options_type = {

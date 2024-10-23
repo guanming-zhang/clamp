@@ -42,8 +42,6 @@ class EllipsoidPackingLoss:
         self.record = record
         if record:
             self.status = dict()
-        print("n_power_iter type = ")
-        print(type(n_pow_iter))
     def __call__(self,preds,labels):
         # reshape (V*B)*O shape tensor to shape V*B*O 
         com = torch.mean(preds,dim=0)
