@@ -1,35 +1,36 @@
 import pytorch_lightning as pl
 from torch import optim
-import loss_module
+from . import loss_module
+from . import models
+from . import lars
 import torch
-import models
-import torch.nn.functional as F
-import lars 
+import torch.nn.functional as F 
+import os
 class CLAP(pl.LightningModule):
     def __init__(self,embedded_dim:int,backbone_name:str,use_projection_header:bool,proj_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow:float=2.0,rs:float=2.0,margin:float=1e-7):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7):
         super().__init__()
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
         self.backbone = models.BackboneNet(embedded_dim,backbone_name,use_projection_header,proj_dim)
-        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow,rs,margin)
+        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
 
     def configure_optimizers(self):
-        if self.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.backbone.parameter(),
+        if self.hparams.optim_name == "SGD":
+            optimizer = optim.SGD(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
-        elif self.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.backbone.parameter(),
+        elif self.hparams.optim_name == "AdamW":
+            optimizer = optim.AdamW(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
-        elif self.optim_name == "LARS":
-            optimizer = lars.LARS(params=self.backbone.parameter(),
+        elif self.hparams.optim_name == "LARS":
+            optimizer = lars.LARS(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   eta = self.hparams.eta,
                                   momentum=self.hparams.momentum,
@@ -39,7 +40,7 @@ class CLAP(pl.LightningModule):
 
         linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.hparams.warmup_epochs)
         cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
-        scheduler = optim.lr_scheduler.SequentialLR(schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
+        scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
         return [optimizer],[scheduler]
     
     def training_step(self, batch, batch_idx):
@@ -49,7 +50,7 @@ class CLAP(pl.LightningModule):
         # the labels are dummy since label is not used in ssl
         return self.loss_fn(preds,None)
     
-    def training_epoch_end(self, outputs):
+    def on_training_epoch_end(self, outputs):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()  # Compute the average loss for the epoch
         self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
@@ -110,7 +111,7 @@ class LinearClassification(pl.LightningModule):
         # Optionally return any metrics you want to save or use for other purposes
         return {'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5}
     
-    def training_epoch_end(self, outputs):
+    def on_training_epoch_end(self, outputs):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
@@ -118,7 +119,7 @@ class LinearClassification(pl.LightningModule):
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
     
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self, outputs):
         # Aggregate the losses and accuracies for the entire test set
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_top1_acc = torch.stack([x['test_acc1'] for x in outputs]).mean()
@@ -133,12 +134,12 @@ class LinearClassification(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.linear_net.parameter(),
+            optimizer = optim.SGD(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         elif self.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.linear_net.parameter(),
+            optimizer = optim.AdamW(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
@@ -148,5 +149,35 @@ class LinearClassification(pl.LightningModule):
                                                    milestones=[self.hparams.n_epochs*0.6,
                                                                self.hparams.n_epochs*0.8],gamma=0.1)
         return [optimizer],[scheduler]
-        
+
+
+def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
+            max_epochs:int,checkpoint_path:str):
+    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         accelerator="gpu",
+                         devices=1,
+                         max_epochs=max_epochs,
+                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
+                                                                  #mode='min', 
+                                                                  save_top_k = -1,
+                                                                  save_last = True,
+                                                                  every_n_epochs = 1,
+                                                                  dirpath=checkpoint_path,
+                                                                  filename = 'CLAP.ckpt',
+                                                                  monitor='train_epoch_loss'),
+                                    pl.callbacks.LearningRateMonitor('epoch')])
+    trainer.logger._default_hp_metric = False 
+
+    # Check whether pretrained model exists. If yes, load it and skip training
+    pretrained_filename = os.path.join(checkpoint_path, 'CLAP.ckpt')
+    if os.path.isfile(pretrained_filename):
+        print(f'Found pretrained model at {pretrained_filename}, loading...')
+        model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+    else:
+        pl.seed_everything(137) # To be reproducable
+        trainer.fit(model, train_loader)
+        print(trainer.checkpoint_callback.best_model_path)
+        print(trainer.checkpoint_callback.best_model_path)
+        model = CLAP.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
+    return model
         

@@ -125,7 +125,7 @@ def download_dataset(dataset_path,dataset_name):
         raise NotImplementedError("downloading for this dataset is not implemented")
 
 
-def get_dataloader(info:dict):
+def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -181,8 +181,8 @@ def get_dataloader(info:dict):
     lc_train_dataset = WrappedDataset(train_dataset,norm_transforms)
     test_dataset = WrappedDataset(test_dataset,norm_transforms)
   
-    ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = info["ssl_batch_size"],shuffle=True,drop_last=True)
-    lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = info["lc_batch_size"],shuffle=True,drop_last=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = info["lc_batch_size"],shuffle=True,drop_last=True)
+    ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = ssl_batch_size,shuffle=True,drop_last=True)
+    lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True)
 
     return ssl_train_loader,lc_train_loader,test_loader

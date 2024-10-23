@@ -9,19 +9,19 @@ class CLAP(pl.LightningModule):
     def __init__(self,embedded_dim:int,backbone_name:str,use_projection_header:bool,proj_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float, 
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow:float=2.0,rs:float=2.0,margin:float=1e-7):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7):
         super().__init__()
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
         self.backbone = models.BackboneNet(embedded_dim,backbone_name,use_projection_header,proj_dim)
-        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow,rs,margin)
+        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
 
     def configure_optimizers(self):
         if self.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.parameter() ,lr=self.lr,momentum=self.momentum)
+            optimizer = optim.SGD(params=self.backbone.parameters() ,lr=self.lr,momentum=self.momentum)
         elif self.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.parameter() ,lr=self.lr,momentum=self.momentume)
+            optimizer = optim.AdamW(params=self.backbone.parameters() ,lr=self.lr,momentum=self.momentume)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
         linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.warmup_epochs)
@@ -47,7 +47,7 @@ class CLAP(pl.LightningModule):
 class LinearClassification(pl.LightningModule):
     def __init__(self,backbone:torch.nn.modules,
                  in_dim:int,out_dim:int,use_batch_norm:bool,
-                 n_epochs):
+                 n_epochs:int):
         super().__init__()
         self.save_hyperparameters(ignore=["backbone"])
         self.backbone = backbone
@@ -64,31 +64,6 @@ class LinearClassification(pl.LightningModule):
         with torch.no_grad():  # Backbone is frozen
             features = self.backbone(x)
         return self.classifier(features)
-    
-    def n_accuracy(self,data_loader, top_k=(5,10)):
-        '''
-        get the top k accuracy for the net with the data set
-        see https://github.com/bearpaw/pytorch-classification/blob/24f1c456f48c78133088c4eefd182ca9e6199b03/utils/eval.py#L5
-        '''
-        self.net.eval()
-        acc = [0.0 for _ in top_k] 
-        n_iter = 0
-        max_k = max(top_k)
-        for imgs,labels in data_loader:
-            if isinstance(imgs,list): # for augumented data
-                n_views = len(imgs)
-                imgs = torch.cat(imgs,dim=0)
-                labels = torch.cat(labels,dim=0)
-            imgs,labels = imgs.to(self.device),labels.to(self.device)
-            with torch.no_grad():
-                _,preds_k = self.net(imgs).topk(max_k,dim = 1) # size = (batch_size*n_view,top_k)
-                expanded_labels = labels.view(-1,1).expand_as(preds_k) # size = (batch_size*n_view,top_k)
-                for i in range(len(top_k)):
-                    k = top_k[i]
-                    acc[i] += (preds_k == expanded_labels[:,:k]).float().sum(dim=1).mean()
-            n_iter += 1
-        acc = [val/n_iter for val in acc]
-        return acc
 
     def training_step(self, batch, batch_idx):
         imgs,labels = batch
@@ -102,29 +77,29 @@ class LinearClassification(pl.LightningModule):
         imgs, labels = batch
         logits = self.forward(imgs)
         loss = F.cross_entropy(logits, labels)
+        # Calculate top-1 accuracy
+        acc1 = (logits.argmax(dim=1) == labels).float().mean()
+        
+        # Calculate top-5 accuracy
+        top5 = torch.topk(logits, k=5, dim=1).indices
+        acc5 = (top5 == labels.view(-1, 1)).float().sum(dim=1).mean()
 
-        # Compute accuracy
-        _,preds_k = self.net(imgs).topk(max_k,dim = 1) # size = (batch_size*n_view,top_k)
-        expanded_labels = labels.view(-1,1).expand_as(preds_k) # size = (batch_size*n_view,top_k)
-        for i in range(len(top_k)):
-            k = top_k[i]
-            acc[i] += (preds_k == expanded_labels[:,:k]).float().sum(dim=1).mean()
-
-        # Log the test loss and accuracy
+        # Log both accuracies and the loss
         self.log('test_loss', loss, prog_bar=True)
-        self.log('test_acc', acc, prog_bar=True)
+        self.log('test_acc1', acc1, prog_bar=True)
+        self.log('test_acc5', acc5, prog_bar=True)
 
         # Optionally return any metrics you want to save or use for other purposes
-        return {'test_loss': loss, 'test_acc': acc}
+        return {'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5}
 
     def configure_optimizers(self):
         if self.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.linear_net.parameter(),
+            optimizer = optim.SGD(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         elif self.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.linear_net.parameter(),
+            optimizer = optim.AdamW(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)

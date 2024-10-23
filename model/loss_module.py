@@ -25,10 +25,11 @@ class InfoNCELoss:
         return ll
 
 class EllipsoidPackingLoss:
-    def __init__(self,n_views,batch_size,lw0=1.0,lw1=1.0,lw2=1.0,n_pow=20,rs=2.0,margin=1e-7,record = False):
+    def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,lw2:float=1.0,
+                 n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7,record:bool = False):
         self.n_views = n_views
         self.batch_size = batch_size
-        self.n_pow = n_pow # for power iteration
+        self.n_pow_iter = n_pow_iter # for power iteration
         self.rs = rs # scale of radii
         self.lw0 = lw0 # loss weight for the ellipsoid size
         self.lw1 = lw1 # loss weight for the repulsion
@@ -36,12 +37,13 @@ class EllipsoidPackingLoss:
         self.margin = margin # no replsion if the distance between two elliposids < margins 
         self.loss_name = "ellipoids_packing_loss"
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
-                                "lw0":lw0,"lw1":lw1,"c2":lw2,"n_pow":n_pow,"rs":rs,
+                                "lw0":lw0,"lw1":lw1,"c2":lw2,"n_pow_iter":n_pow_iter,"rs":rs,
                                 "margin":margin}
         self.record = record
         if record:
             self.status = dict()
-
+        print("n_power_iter type = ")
+        print(type(n_pow_iter))
     def __call__(self,preds,labels):
         # reshape (V*B)*O shape tensor to shape V*B*O 
         com = torch.mean(preds,dim=0)
@@ -65,7 +67,7 @@ class EllipsoidPackingLoss:
         # calculate the largest eigenvectors by the [power iteration] method
         corr_norm = torch.linalg.matrix_norm(corr,keepdim=True)
         normalized_corr = corr/(corr_norm + 1e-6).detach()
-        corr_pow = torch.stack([torch.matrix_power(normalized_corr[i], self.n_pow) for i in range(corr.shape[0])])
+        corr_pow = torch.stack([torch.matrix_power(normalized_corr[i], self.n_pow_iter) for i in range(corr.shape[0])])
         b0 = torch.rand(preds.shape[-1],device=preds.device)
         #print("corr=",corr)
         eigens = torch.matmul(corr_pow,b0) # size = B*O
