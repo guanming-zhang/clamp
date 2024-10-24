@@ -2,7 +2,7 @@ import torch
 from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import random_split,Dataset
 from torchvision import datasets
 from torchvision import transforms
 import time
@@ -148,7 +148,11 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
-
+    elif info["dataset"] == "CIFAR10":
+        data_dir = "./datasets/cifar10"
+        train_dataset = datasets.CIFAR10(root=data_dir, train=True,download=True)
+        test_dataset = datasets.CIFAR10(root=data_dir, train=False,download=True)
+        
     trans_list = [transforms.ToTensor()]
     
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":

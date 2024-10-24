@@ -1,5 +1,7 @@
 import pytorch_lightning as pl
 from torch import optim
+import torch.utils
+import torch.utils.data
 from . import loss_module
 from . import models
 from . import lars
@@ -110,7 +112,6 @@ class LinearClassification(pl.LightningModule):
 
         # Optionally return any metrics you want to save or use for other purposes
         return {'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5}
-    
     def on_training_epoch_end(self, outputs):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()  # Compute the average loss for the epoch
@@ -175,5 +176,32 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
         pl.seed_everything(137) # To be reproducable
         trainer.fit(model, train_loader)
         model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
+    return model
+
+def train_lc(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
+            test_loader:torch.utils.data.DataLoader,max_epochs:int,every_n_epochs:int,checkpoint_path:str):
+    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         accelerator="gpu",
+                         devices=1,
+                         max_epochs=max_epochs,
+                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
+                                                                  save_top_k = -1,
+                                                                  save_last = True,
+                                                                  every_n_epochs = every_n_epochs,
+                                                                  dirpath=checkpoint_path,
+                                                                  filename = 'LC.ckpt'),
+                                    pl.callbacks.LearningRateMonitor('epoch')])
+    
+    trainer.logger._default_hp_metric = False 
+    # Check whether pretrained model exists. If yes, load it and skip training
+    pretrained_filename = os.path.join(checkpoint_path, 'LC.ckpt')
+    if os.path.isfile(pretrained_filename):
+        print(f'Found pretrained model at {pretrained_filename}, loading...')
+        model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+    else:
+        pl.seed_everything(137) # To be reproducable
+        trainer.fit(model, train_loader)
+        model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
+    trainer.test(test_loader)
     return model
         
