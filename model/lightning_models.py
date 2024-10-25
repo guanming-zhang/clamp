@@ -19,7 +19,7 @@ class CLAP(pl.LightningModule):
         self.backbone = models.BackboneNet(embedded_dim,backbone_name,use_projection_header,proj_dim)
         self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
-
+        self.train_step_outputs = []
     def configure_optimizers(self):
         if self.hparams.optim_name == "SGD":
             optimizer = optim.SGD(params=self.backbone.parameters(),
@@ -50,11 +50,13 @@ class CLAP(pl.LightningModule):
         imgs = torch.cat(imgs,dim=0)
         preds = self.backbone(imgs)
         # the labels are dummy since label is not used in ssl
-        return self.loss_fn(preds,None)
+        loss = self.loss_fn(preds,None)
+        self.train_step_outputs.append(loss)
+        return loss
     
-    def on_training_epoch_end(self, outputs):
+    def on_training_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()  # Compute the average loss for the epoch
+        avg_loss = torch.stack([x['loss'] for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
 
         # Save epoch loss for future reference
@@ -63,6 +65,7 @@ class CLAP(pl.LightningModule):
 class LinearClassification(pl.LightningModule):
     def __init__(self,backbone:torch.nn.modules,
                  in_dim:int,out_dim:int,use_batch_norm:bool,
+                 optim_name:str,lr:float,momentum:float,weight_decay:float,
                  n_epochs:int):
         super().__init__()
         self.save_hyperparameters(ignore=["backbone"])
@@ -74,6 +77,8 @@ class LinearClassification(pl.LightningModule):
         self.backbone.remove_projection_header()
         for param in self.backbone.parameters():
             param.requires_grad = False
+        self.train_step_outputs = []
+        self.test_step_outputs = []
         self.train_epoch_loss = []
         self.test_acc1 = 0.0
         self.test_acc5 = 0.0
@@ -82,18 +87,21 @@ class LinearClassification(pl.LightningModule):
         # Extract features from the frozen backbone
         with torch.no_grad():  # Backbone is frozen
             features = self.backbone(x)
-        return self.classifier(features)
+        return self.linear_net(features)
 
     def training_step(self, batch, batch_idx):
         imgs,labels = batch
-        imgs,labels = imgs.to(self.device),labels.to(self.device)
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)        
         preds = self.forward(imgs)
         loss = F.cross_entropy(preds, labels)
-        return loss
+        self.train_step_outputs.append(loss)
     
     def test_step(self, batch, batch_idx):
         # Unpack the batch (input data and labels)
         imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)  
         logits = self.forward(imgs)
         loss = F.cross_entropy(logits, labels)
 
@@ -109,22 +117,21 @@ class LinearClassification(pl.LightningModule):
         self.log('batch_test_loss', loss, prog_bar=True)
         self.log('batch_test_acc1', acc1, prog_bar=True)
         self.log('batch_test_acc5', acc5, prog_bar=True)
+        self.test_step_outputs.append({'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5})
 
-        # Optionally return any metrics you want to save or use for other purposes
-        return {'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5}
-    def on_training_epoch_end(self, outputs):
+    def on_training_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()  # Compute the average loss for the epoch
+        avg_loss = torch.stack([x['loss'] for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
         self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
     
-    def on_test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
-        avg_top1_acc = torch.stack([x['test_acc1'] for x in outputs]).mean()
-        avg_top5_acc = torch.stack([x['test_acc5'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         
         # Log the aggregated metrics
         self.log('test_loss', avg_loss)
@@ -134,12 +141,12 @@ class LinearClassification(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        if self.optim_name == "SGD":
+        if self.hparams.optim_name == "SGD":
             optimizer = optim.SGD(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
-        elif self.optim_name == "AdamW":
+        elif self.hparams.optim_name == "AdamW":
             optimizer = optim.AdamW(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
@@ -168,7 +175,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(checkpoint_path, 'CLAP.ckpt')
+    pretrained_filename = os.path.join(checkpoint_path, 'last.ckpt')
     if os.path.isfile(pretrained_filename):
         print(f'Found pretrained model at {pretrained_filename}, loading...')
         model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
@@ -193,15 +200,17 @@ def train_lc(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader
                                     pl.callbacks.LearningRateMonitor('epoch')])
     
     trainer.logger._default_hp_metric = False 
+    '''
     # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(checkpoint_path, 'LC.ckpt')
+    pretrained_filename = os.path.join(checkpoint_path, 'last.ckpt')
     if os.path.isfile(pretrained_filename):
         print(f'Found pretrained model at {pretrained_filename}, loading...')
-        model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+        model = LinearClassification.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
     else:
         pl.seed_everything(137) # To be reproducable
         trainer.fit(model, train_loader)
-        model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
-    trainer.test(test_loader)
+        model = LinearClassification.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
+    '''
+    trainer.test(model,test_loader)
     return model
         
