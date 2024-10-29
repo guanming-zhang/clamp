@@ -8,6 +8,8 @@ from . import lars
 import torch
 import torch.nn.functional as F 
 import os
+import re
+import subprocess
 class CLAP(pl.LightningModule):
     def __init__(self,embedded_dim:int,backbone_name:str,use_projection_header:bool,proj_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
@@ -63,13 +65,13 @@ class CLAP(pl.LightningModule):
         self.train_epoch_loss.append(avg_loss.item())
 
 class LinearClassification(pl.LightningModule):
-    def __init__(self,backbone:torch.nn.modules,
+    def __init__(self,
                  in_dim:int,out_dim:int,use_batch_norm:bool,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,
                  n_epochs:int):
         super().__init__()
-        self.save_hyperparameters(ignore=["backbone"])
-        self.backbone = backbone
+        self.save_hyperparameters()
+        self.backbone = None
         if use_batch_norm:
             self.linear_net = models.BnLinearNet(in_dim,out_dim)
         else:
@@ -83,6 +85,14 @@ class LinearClassification(pl.LightningModule):
         self.test_acc1 = 0.0
         self.test_acc5 = 0.0
     
+    def set_backbone(self,backbone):
+        # need to call this function
+        self.backbone = backbone
+    
+    def on_fit_start(self):
+        if not self.backbone:
+            raise Exception("need to set the backbone before training of validating") 
+
     def forward(self, x):
         # Extract features from the frozen backbone
         with torch.no_grad():  # Backbone is frozen
@@ -157,6 +167,31 @@ class LinearClassification(pl.LightningModule):
                                                    milestones=[self.hparams.n_epochs*0.6,
                                                                self.hparams.n_epochs*0.8],gamma=0.1)
         return [optimizer],[scheduler]
+    
+    def reset_optimizer_scheduler(self,optimizer = None,scheduler = None):
+        # Reinitialize both optimizer and scheduler by calling configure_optimizers
+        if optimizer and scheduler:
+            self.optimizers = optimizer
+            self.schedulers = scheduler
+        else:
+            optimizers, schedulers = self.configure_optimizers()
+            self.optimizers = optimizers
+            self.schedulers = schedulers
+
+    def save_customized_checkpoint(self,path:str):
+        checkpoint = {
+            'model_state_dict': self.state_dict(),  # Model weights
+            'optimizer_state_dict': self.optimizers().state_dict(),  # Optimizer state
+            'scheduler_state_dict': self.schedulers().state_dict()
+        }
+        torch.save(checkpoint, path)
+
+    def load_from_customized_checkpoint(self,path:str):
+        checkpoint = torch.load(path)
+        self.linear_net.load_state_dict(checkpoint['model_state_dict'])
+        optimizer,scheduler = self.configure_optimizers()
+        self.optimizers = optimizer
+        self.schedulers = scheduler
 
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
@@ -170,7 +205,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                   save_last = True,
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
-                                                                  filename = 'CLAP.ckpt'),
+                                                                  filename = "CLAP-{epoch:02d}.ckpt"),
                                     pl.callbacks.LearningRateMonitor('epoch')])
     
     trainer.logger._default_hp_metric = False 
@@ -185,8 +220,44 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
         model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
     return model
 
-def train_lc(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
-            test_loader:torch.utils.data.DataLoader,max_epochs:int,every_n_epochs:int,checkpoint_path:str):
+def get_top_n_latest_checkpoints(directory, n):
+    # Regular expression to extract epoch number from filename
+    pattern = re.compile(r'CLAP-epoch(\d+)\.ckpt')
+    
+    # List all files in the directory
+    files = os.listdir(directory)
+    
+    # Create a list to store filenames and corresponding epoch numbers
+    epoch_files = []
+    
+    for file in files:
+        match = pattern.match(file)
+        if match:
+            # Extract the epoch number and convert to int
+            epoch = int(match.group(1))
+            epoch_files.append((epoch, file))
+    
+    # Sort files by epoch number in descending order and get the top N
+    top_n_files = sorted(epoch_files, key=lambda x: x[0], reverse=True)[:n]
+    
+    # Return the filenames of the top N files
+    return [file for _, file in top_n_files]
+
+def train_lc(ssl_model:pl.LightningModule, 
+            ssl_ckpt_path:str,
+            linear_model:pl.LightningModule,
+            train_loader: torch.utils.data.DataLoader,
+            test_loader:torch.utils.data.DataLoader,
+            max_epochs:int,
+            every_n_epochs:int,
+            checkpoint_path:str,
+            mode:str):
+    # Check whether pretrained model exists. If yes, load it and skip training
+    trained_filename = os.path.join(checkpoint_path, 'last.ckpt')
+    if os.path.isfile(trained_filename):
+        print(f'Found pretrained model at {trained_filename}, loading...')
+        model = LinearClassification.load_from_checkpoint(trained_filename) # Automatically loads the model with the saved hyperparameters
+        return model
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
                          devices=1,
@@ -198,19 +269,34 @@ def train_lc(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader
                                                                   dirpath=checkpoint_path,
                                                                   filename = 'LC.ckpt'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
-    
+    linear_model.save_customized_checkpoint(os.path.join(checkpoint_path,"init_ckpt"))
     trainer.logger._default_hp_metric = False 
-    '''
-    # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(checkpoint_path, 'last.ckpt')
-    if os.path.isfile(pretrained_filename):
-        print(f'Found pretrained model at {pretrained_filename}, loading...')
-        model = LinearClassification.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
-    else:
-        pl.seed_everything(137) # To be reproducable
-        trainer.fit(model, train_loader)
-        model = LinearClassification.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
-    '''
-    trainer.test(model,test_loader)
+    if mode == "load_last_pretrained_epoch":
+        ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,"last.ckpt"))
+        ssl_model.backbone.remove_projection_header()
+        linear_model.set_backbone(ssl_model.backbone)
+        trainer.fit(linear_model, train_loader)
+        test_output = trainer.test(model,test_loader)
+    elif mode == "scan_pretrained_epochs":
+        test_loss = torch.finfo(torch.float32).max
+        best_dir = os.makedirs(os.path.join(checkpoint_path,"_best_model"))
+        temp_dir = os.makedirs(os.path.join(checkpoint_path,"_temp_model"))
+        files = get_top_n_latest_checkpoints(ssl_ckpt_path,5)
+        for f in files:
+            ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,f))
+            ssl_model.backbone.remove_projection_header()
+            linear_model.set_backbone(ssl_model.backbone)
+            linear_model.load_from_customized_checkpoint()
+            trainer.fit(linear_model, train_loader)
+            test_output = trainer.test(model,test_loader)
+            if test_loss < test_output["test_loss"]:
+                subprocess.check_output(["rm", "-r", os.path.join(best_dir,"*")], text=True)
+                subprocess.check_output(["cp", "-r", os.path.join(temp_dir,"*"),best_dir], text=True)
+                subprocess.check_output(["rm", "-r", os.path.join(temp_dir,"*")], text=True)
+            else:
+                subprocess.check_output(["rm", "-r", temp_dir], text=True)
+        subprocess.check_output(["mv", os.path.join(best_dir,"*"),checkpoint_path], text=True)   
+        model = LinearClassification.load_from_checkpoint(os.path.join(best_dir,"last.ckpt")) # Load best checkpoint after training
     return model
+    
         
