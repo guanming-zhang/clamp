@@ -115,6 +115,8 @@ class Config:
             "jitter_prob":"float",
             "grayscale_prob":"float",
             "blur_kernel_size":"int",
+            "blur_prob":"float",
+            "hflip_prob":"float"
             }
         elif section == "SSL":
             options_type = {

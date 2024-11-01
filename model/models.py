@@ -30,6 +30,10 @@ class BackboneNet(torch.nn.Module):
     
     def remove_projection_header(self):
         self.projection_header = torch.nn.Identity()
+    
+    def remove_maxpool(self):
+        # remove the max pooling for CIFAR10 dataset
+        self.net.maxpool = torch.nn.Identity() 
 
     def forward(self,x):
         return self.projection_header(self.net(x))
