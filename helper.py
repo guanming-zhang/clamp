@@ -60,7 +60,7 @@ class Config:
                         "SSL":["batch_size","backbone","use_projection_header","embedded_dim",
                             "optimizer","loss_function","n_epochs"],
                         "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"],
-                        "IO":["mode"]}
+                        "IO":["restart"]}
         #--------------check information -------------------
         for section in config.sections():
             print(f"[{section}]")
@@ -137,7 +137,7 @@ class Config:
             "tau":"float", 
             "warmup_epochs":"int",
             "n_epochs":"int",
-            "update_ssl_model_every_n_epochs":"int"
+            "save_every_n_epochs":"int"
             }
         elif section == "LC":
             options_type = {
@@ -149,11 +149,13 @@ class Config:
             "momentum":"float",
             "weight_decay":"float",
             "n_epochs":"int",
-            "batch_size":"int"
+            "batch_size":"int",
+            "training_mode":"string",
+            "save_every_n_epochs":"int"
             }
         elif section == "IO":
             options_type = {
-            "mode":"string"
+            "restart":"boolean"
             }
         return options_type
     
@@ -181,18 +183,3 @@ class Config:
             elif options_type[opt] == "float_list":
                 str_list = config[section][opt].split(",")
                 getattr(self,section)[opt] = [float(s) for s in str_list]
-
-
-def save_checkpoint(save_dir,model,optimizer,trainer):
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'trainer_state_dict':trainer.state_dict()}, save_dir)
-
-def load_checkpoint(load_path,model,optimizer=None,trainer=None,device = "cpu"):
-    loaded_data = torch.load(load_path,map_location=device)
-    model.load_state_dict(loaded_data["model_state_dict"])
-    if optimizer:
-        optimizer.load_state_dict(loaded_data["optimizer_state_dict"])
-    if trainer:
-        trainer.load_state_dict(loaded_data["trainer_state_dict"])
