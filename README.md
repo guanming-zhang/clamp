@@ -1,2 +1,2 @@
-# sslpnm
-Self supervised learning by packing neural maniforlds
+# clap
+contrastive learning as packing problem
