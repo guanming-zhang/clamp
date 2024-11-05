@@ -197,10 +197,14 @@ class LinearClassification(pl.LightningModule):
 
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
-            max_epochs:int,every_n_epochs:int,checkpoint_path:str):
+            max_epochs:int,every_n_epochs:int,
+            checkpoint_path:str,
+            num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto"):
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
-                         devices=1,
+                         devices=gpu_per_node,
+                         num_nodes=num_nodes,
+                         strategy=strategy,
                          max_epochs=max_epochs,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,
@@ -251,7 +255,10 @@ def train_lc(ssl_model:pl.LightningModule,
             max_epochs:int,
             every_n_epochs:int,
             checkpoint_path:str,
-            mode:str):
+            mode:str,
+            num_nodes:int=1,
+            gpu_per_nodes:int=1,
+            strategy:str = "auto"):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'last.ckpt')
     if os.path.isfile(trained_filename):
@@ -275,7 +282,9 @@ def train_lc(ssl_model:pl.LightningModule,
     if mode == "load_last_pretrained_epoch":
         trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
-                         devices=1,
+                         devices=gpu_per_nodes,
+                         num_nodes=num_nodes,
+                         strategy=strategy,
                          max_epochs=max_epochs,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,
@@ -305,7 +314,9 @@ def train_lc(ssl_model:pl.LightningModule,
         for f in files:
             trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
-                         devices=1,
+                         devices=gpu_per_nodes,
+                         num_nodes=num_nodes,
+                         strategy=strategy,
                          max_epochs=max_epochs,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,

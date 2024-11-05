@@ -99,7 +99,8 @@ class Config:
             options_type = {
             "num_nodes":"int",
             "gpu_per_node":"int",
-            "num_workers":"int"}
+            "num_workers":"int",
+            "strategy":"string"}
         elif section == "DATA":
             options_type = {
             "dataset":"string",
@@ -127,6 +128,7 @@ class Config:
             "embedded_dim":"int",
             "optimizer":"string",
             "lr":"float",
+            "lr_scale":"string",
             "momentum":"float",
             "weight_decay":"float",
             "lars_eta":"float",
@@ -148,6 +150,7 @@ class Config:
             "loss_function":"string",
             "optimizer":"string",
             "lr":"float",
+            "lr_scale":"string",
             "momentum":"float",
             "weight_decay":"float",
             "n_epochs":"int",

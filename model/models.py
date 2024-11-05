@@ -33,7 +33,11 @@ class BackboneNet(torch.nn.Module):
     
     def remove_maxpool(self):
         # remove the max pooling for CIFAR10 dataset
-        self.net.maxpool = torch.nn.Identity() 
+        self.net.maxpool = torch.nn.Identity()
+    def replace_conv1(self):
+        # repalce the conv1 for CIFAR10 dataset
+        self.net.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=2, bias=False) 
+    
 
     def forward(self,x):
         return self.projection_header(self.net(x))
