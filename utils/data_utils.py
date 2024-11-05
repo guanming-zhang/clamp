@@ -125,7 +125,7 @@ def download_dataset(dataset_path,dataset_name):
         raise NotImplementedError("downloading for this dataset is not implemented")
 
 
-def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:int):
+def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:int,validation:bool=True):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -144,14 +144,21 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
         # select 0 and 1 from the test dataset
         test_indices = torch.where(torch.logical_or(test_dataset.targets == 0,test_dataset.targets == 1))
         test_dataset = torch.utils.data.Subset(test_dataset,test_indices[0])
-    elif info["dataset"] == "MNIST":
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+    if info["dataset"] == "MNIST":
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "CIFAR10":
         data_dir = "./datasets/cifar10"
         train_dataset = datasets.CIFAR10(root=data_dir, train=True,download=True)
         test_dataset = datasets.CIFAR10(root=data_dir, train=False,download=True)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+
         
     trans_list = [transforms.ToTensor()]
     
@@ -186,9 +193,14 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
     ssl_train_dataset = WrappedDataset(train_dataset,aug_transforms,n_views = info["n_views"])
     lc_train_dataset = WrappedDataset(train_dataset,norm_transforms)
     test_dataset = WrappedDataset(test_dataset,norm_transforms)
-  
+    if validation:
+        val_dataset = WrappedDataset(val_dataset,norm_transforms)
+
     ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = ssl_batch_size,shuffle=True,drop_last=True,num_workers=num_workers)
     lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers = num_workers)
-
-    return ssl_train_loader,lc_train_loader,test_loader
+    if validation:
+        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers = num_workers)
+    else:
+        val_loader = None
+    return ssl_train_loader,lc_train_loader,test_loader,val_loader

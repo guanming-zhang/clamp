@@ -4,26 +4,29 @@ import json
 import torchvision
 
 class BackboneNet(torch.nn.Module):
-    def __init__(self,embedded_dim:int,resnet_type:str="resnet18",use_projection_header=False,proj_dim=-1):
+    def __init__(self,resnet_type:str="resnet18",use_projection_header=False,backbone_out_dim,proj_out_dim=-1):
         super().__init__()
         self.model_name = "BackboneNet"
         # this is a sloppy way of recording hyperperameters
-        self.hyper_parameters = {"embedded_dim":embedded_dim,"resnet_type":resnet_type,
+        self.hyper_parameters = {"resnet_type":resnet_type,
                                 "use_projection_header":use_projection_header,
-                                "proj_dim":proj_dim}
+                                "backbone_out_dim":backbone_out_dim,
+                                "proj_out_dim":proj_out_dim}
         if resnet_type == "resnet18":
-            self.net = torchvision.models.resnet18(num_classes = embedded_dim)
+            # the fc layer dim for resnet18 is 512*num_classes
+            self.net = torchvision.models.resnet18(num_classes = backbone_out_dim)
         elif resnet_type == "resnet34":
-            self.net = torchvision.models.resnet34(num_classes = embedded_dim)
+            # the fc layer dim for resnet34 is 2048*num_classes
+            self.net = torchvision.models.resnet34(num_classes = backbone_out_dim)
         elif resnet_type == "resnet50":
-            self.net = torchvision.models.resnet50(num_classes = embedded_dim)
+            # the fc layer dim for resnet18 is 2048*num_classes
+            self.net = torchvision.models.resnet50(num_classes = backbone_out_dim)
         if use_projection_header:
-            if proj_dim < 0:
+            if proj_out_dim < 0:
                 raise ValueError("proj_dim must be larger than 0")
             self.projection_header = torch.nn.Sequential(
-                        torch.nn.Linear(embedded_dim,proj_dim),
                         torch.nn.ReLU(),
-                        torch.nn.Linear(proj_dim,embedded_dim)
+                        torch.nn.Linear(backbone_out_dim,proj_out_dim)
                     )
         else:
             self.projection_header = torch.nn.Identity()

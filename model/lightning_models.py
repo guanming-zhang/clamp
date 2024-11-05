@@ -12,14 +12,14 @@ import re
 import subprocess
 import json
 class CLAP(pl.LightningModule):
-    def __init__(self,embedded_dim:int,backbone_name:str,use_projection_header:bool,proj_dim:int,
+    def __init__(self,backbone_name:str,use_projection_header:bool,backbone_out_dim:int,proj_out_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
                  warmup_epochs:int,n_epochs:int,
                  n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7):
         super().__init__()
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
-        self.backbone = models.BackboneNet(embedded_dim,backbone_name,use_projection_header,proj_dim)
+        self.backbone = models.BackboneNet(backbone_name,use_projection_header,backbone_out_dim,proj_out_dim)
         self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
@@ -111,6 +111,13 @@ class LinearClassification(pl.LightningModule):
         loss = F.cross_entropy(preds, labels)
         self.train_step_outputs.append(loss)
     
+    def validation_step(self, batch, batch_idx):
+        imgs, labels = batch
+        preds = self.forward(imgs).argmax(dim=-1)
+        acc = (labels == preds).float().mean()
+        self.log('val_acc', acc, prog_bar=True)
+        return acc
+    
     def test_step(self, batch, batch_idx):
         # Unpack the batch (input data and labels)
         imgs, labels = batch
@@ -169,7 +176,11 @@ class LinearClassification(pl.LightningModule):
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
         #cosine scheduler
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
+        #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                                      milestones=[int(self.hparams.n_epochs*0.6),
+                                                                  int(self.hparams.n_epochs*0.8)],
+                                                      gamma=0.1)
         return [optimizer],[scheduler]
     
     def reset_optimizer_scheduler(self,optimizer = None,scheduler = None):
@@ -286,12 +297,10 @@ def train_lc(ssl_model:pl.LightningModule,
                          num_nodes=num_nodes,
                          strategy=strategy,
                          max_epochs=max_epochs,
-                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                  save_top_k = -1,
-                                                                  save_last = True,
-                                                                  every_n_epochs = every_n_epochs,
-                                                                  dirpath=os.path.join(checkpoint_path,"_temp"),
-                                                                  filename = 'LC.ckpt'),
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                                                mode = "max",
+                                                                dirpath=os.path.join(checkpoint_path,"_temp"),
+                                                                filename = 'LC.ckpt'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
         trainer.logger._default_hp_metric = False 
         ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,"last.ckpt"))

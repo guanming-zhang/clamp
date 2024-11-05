@@ -45,19 +45,20 @@ class Timer:
 # For reading the input configuration
 ########################################    
 class Config:
-    def __init__(self,input_dir):
+    def __init__(self,input_dir:str,defalut_config_file:str=""):
         input_file= os.path.join(input_dir,'config.ini')
         if not os.path.isfile(input_file):
             raise FileNotFoundError("The input file" + input_file + "does not exist")
         config = configparser.ConfigParser()
-        default_config = configparser.ConfigParser()
-        default_config.read("./default_config.ini")
+        if len(defalut_config_file > 0):
+            default_config = configparser.ConfigParser()
+            default_config.read(defalut_config_file)
 
         config.read(input_file)
         self.loc = input_dir
         compulsory = {  "INFO":["num_nodes","gpu_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
-                        "SSL":["batch_size","backbone","use_projection_header","embedded_dim",
+                        "SSL":["batch_size","backbone","use_projection_header","backbone_out_dim",
                             "optimizer","loss_function","n_epochs"],
                         "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"],
                         "IO":["restart"]}
@@ -77,12 +78,14 @@ class Config:
                         raise ValueError(option + " is missing in the [{}] section".format(section))
         #----------------convert to properties----------------
         self.INFO,self.DATA,self.SSL,self.LC,self.IO= {},{},{},{},{}
+        
         #----------------set the default configuration first ----------
-        self._set_options(section="INFO",config = default_config)
-        self._set_options(section="DATA",config = default_config)
-        self._set_options(section="SSL",config = default_config)
-        self._set_options(section="LC",config = default_config)
-        self._set_options(section="IO",config = default_config)
+        if len(defalut_config_file)>0:
+            self._set_options(section="INFO",config = default_config)
+            self._set_options(section="DATA",config = default_config)
+            self._set_options(section="SSL",config = default_config)
+            self._set_options(section="LC",config = default_config)
+            self._set_options(section="IO",config = default_config)
         #----------------set the configuration  ----------
         self._set_options(section="INFO",config = config)
         self._set_options(section="DATA",config = config)
@@ -125,7 +128,7 @@ class Config:
             "backbone":"string",
             "use_projection_header":"boolean",
             "proj_dim":"int",
-            "embedded_dim":"int",
+            "backbone_out_dim":"int",
             "optimizer":"string",
             "lr":"float",
             "lr_scale":"string",
