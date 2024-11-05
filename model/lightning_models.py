@@ -256,14 +256,9 @@ def train_lc(ssl_model:pl.LightningModule,
             every_n_epochs:int,
             checkpoint_path:str,
             mode:str,
-<<<<<<< HEAD
             num_nodes:int=1,
             gpu_per_nodes:int=1,
             strategy:str = "auto"):
-=======
-            gpu_per_node:int=1,
-            num_nodes:int=1):
->>>>>>> da8fb2bfe0ac954e108cfb533755989130909466
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'last.ckpt')
     if os.path.isfile(trained_filename):
