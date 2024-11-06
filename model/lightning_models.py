@@ -11,18 +11,20 @@ import os
 import re
 import subprocess
 import json
+from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler
+
 class CLAP(pl.LightningModule):
-    def __init__(self,backbone_name:str,use_projection_header:bool,backbone_out_dim:int,proj_out_dim:int,
+    def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_header:bool,proj_out_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
                  warmup_epochs:int,n_epochs:int,
                  n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7):
         super().__init__()
-        # all the hyperparameters are added as attributes to this class
-        self.save_hyperparameters()
-        self.backbone = models.BackboneNet(backbone_name,use_projection_header,backbone_out_dim,proj_out_dim)
+        self.backbone = models.BackboneNet(backbone_name,backbone_out_dim,prune,use_projection_header,proj_out_dim)
         self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
+        # all the hyperparameters are added as attributes to this class
+        self.save_hyperparameters()
     def configure_optimizers(self):
         if self.hparams.optim_name == "SGD":
             optimizer = optim.SGD(params=self.backbone.parameters(),
@@ -113,6 +115,8 @@ class LinearClassification(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
         self.log('val_acc', acc, prog_bar=True)
@@ -144,7 +148,6 @@ class LinearClassification(pl.LightningModule):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
-        print("avgloss = {}".format(avg_loss))
         self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
@@ -211,7 +214,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
             num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto",precision:str="16-true"):
-    '''
+    
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
                          devices=gpu_per_node,
@@ -227,7 +230,9 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                   filename = "CLAP-{epoch:02d}.ckpt"),
                                     pl.callbacks.LearningRateMonitor('epoch')])
     '''
-    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+    profiler = SimpleProfiler()
+    trainer = pl.Trainer(profiler=profiler,
+                         default_root_dir=checkpoint_path,
                          accelerator="gpu",
                          devices=1,
                          max_epochs=max_epochs,
@@ -239,7 +244,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                   dirpath=checkpoint_path,
                                                                   filename = "CLAP-{epoch:02d}.ckpt"),
                                     pl.callbacks.LearningRateMonitor('epoch')])
-    
+    '''
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists. If yes, load it and skip training
     pretrained_filename = os.path.join(checkpoint_path, 'last.ckpt')
@@ -280,7 +285,6 @@ def train_lc(ssl_model:pl.LightningModule,
             test_loader:torch.utils.data.DataLoader,
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,
-            every_n_epochs:int,
             checkpoint_path:str,
             mode:str,
             num_nodes:int=1,
@@ -322,11 +326,19 @@ def train_lc(ssl_model:pl.LightningModule,
                                     pl.callbacks.LearningRateMonitor('epoch')])
         trainer.logger._default_hp_metric = False 
         ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,"last.ckpt"))
+        ssl_model.backbone.remove_projection_header()
         linear_model.set_backbone(ssl_model.backbone)
         trainer.fit(linear_model, train_loader,val_loader)
         test_output = trainer.test(linear_model,test_loader)
-        subprocess.check_output(["mv " + os.path.join(best_dir,"*") + " " + checkpoint_path], text=True,shell=True)  
+        temp_dir = os.path.join(checkpoint_path,"_temp")
+        subprocess.check_output(["mv " + os.path.join(temp_dir,"*") + " " + checkpoint_path], text=True,shell=True)  
         subprocess.check_output(["rm", "-r", os.path.join(temp_dir)], text=True) 
+        result = {"best_training_loss":test_output[0]["test_loss"],
+                  "best_test_acc1":test_output[0]["test_acc1"],
+                  "best_test_acc5":test_output[0]["test_acc5"]
+                  }
+        with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
+            json.dump(result,fs,indent=4)
     elif mode == "scan_pretrained_epochs":
         best_dir = os.path.join(checkpoint_path,"_best_model")
         temp_dir = os.path.join(checkpoint_path,"_temp")
@@ -334,7 +346,9 @@ def train_lc(ssl_model:pl.LightningModule,
         os.makedirs(temp_dir)
         files = get_top_n_latest_checkpoints(ssl_ckpt_path,5)
         result = {"best_ssl_model_path":"",
-                  "best_training_loss":torch.finfo(torch.float32).max,
+                  "best_training_loss":torch.finfo(torch.float16).max,
+                  "best_test_acc1":-1.0,
+                  "best_test_acc5":-1.0,
                   "best_training_version":-1
                 }
         training_version = 0
@@ -346,16 +360,15 @@ def train_lc(ssl_model:pl.LightningModule,
                          strategy=strategy,
                          precision=precision,
                          max_epochs=max_epochs,
-                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                  save_top_k = -1,
-                                                                  save_last = True,
-                                                                  every_n_epochs = every_n_epochs,
-                                                                  dirpath=os.path.join(checkpoint_path,"_temp"),
-                                                                  filename = 'LC.ckpt'),
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                                                mode = "max",
+                                                                dirpath=os.path.join(checkpoint_path,"_temp"),
+                                                                filename = 'LC'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
             trainer.logger._default_hp_metric = False 
             print("loading ssl model from " + f)
             ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,f))
+            ssl_model.backbone.remove_projection_header()
             #linear_model.load_from_checkpoint(os.path.join(checkpoint_path,"init_ckpt")))
             if os.path.isfile(os.path.join(checkpoint_path,"init.ckpt")):
                 linear_model.load_from_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
@@ -368,15 +381,17 @@ def train_lc(ssl_model:pl.LightningModule,
                 os.makedirs(temp_dir)
                 result["best_ssl_model_path"] = os.path.join(ssl_ckpt_path,f)
                 result["best_training_loss"] = test_output[0]["test_loss"]
+                result["best_test_acc1"] = test_output[0]["test_acc1"]
+                result["best_test_acc5"] = test_output[0]["test_acc5"]
                 result["best_training_version"] = training_version
             else:
                 subprocess.check_output(["rm", "-r", temp_dir], text=True)
                 os.makedirs(temp_dir)
             training_version += 1
         subprocess.check_output(["mv " + os.path.join(best_dir,"*") + " " + checkpoint_path], text=True,shell=True)   
-        linear_model.load_from_customized_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
+        linear_model.load_from_customized_checkpoint(os.path.join(checkpoint_path,"LC.ckpt")) # Load best checkpoint after training
         with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
-                json.dump(result,fs)
+            json.dump(result,fs,indent=4)
         ssl_model = CLAP.load_from_checkpoint(result["best_ssl_model_path"])
         linear_model.set_backbone(ssl_model.backbone)
     else:

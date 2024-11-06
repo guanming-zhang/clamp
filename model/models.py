@@ -4,7 +4,8 @@ import json
 import torchvision
 
 class BackboneNet(torch.nn.Module):
-    def __init__(self,resnet_type:str="resnet18",use_projection_header=False,backbone_out_dim=2048,proj_out_dim=-1):
+    def __init__(self,resnet_type:str="resnet18",backbone_out_dim=2048,prune:bool=False,
+                 use_projection_header=False,proj_out_dim=-1):
         super().__init__()
         self.model_name = "BackboneNet"
         # this is a sloppy way of recording hyperperameters
@@ -30,14 +31,19 @@ class BackboneNet(torch.nn.Module):
                     )
         else:
             self.projection_header = torch.nn.Identity()
+        # if the image is small, such as CIFAR10, MNIST, we need to prune the network
+        if prune:
+            self._remove_maxpool()
+            self._replace_conv1()
+
     
     def remove_projection_header(self):
         self.projection_header = torch.nn.Identity()
     
-    def remove_maxpool(self):
+    def _remove_maxpool(self):
         # remove the max pooling for CIFAR10 dataset
         self.net.maxpool = torch.nn.Identity()
-    def replace_conv1(self):
+    def _replace_conv1(self):
         # repalce the conv1 for CIFAR10 dataset
         self.net.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=2, bias=False) 
     

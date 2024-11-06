@@ -59,9 +59,9 @@ class EllipsoidPackingLoss:
         # average radius for each ellipsoid
         # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
         # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
-        # average radii = sqrt(sum of eigenvalues/output_dim) 
+        # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
         # average radii.shape = (B,)
-        radii = self.rs*torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/preds.shape[-1] + 1e-12)
+        radii = self.rs*torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/min(self.n_views,preds.shape[-1]) + 1e-12)
         # calculate the largest eigenvectors by the [power iteration] method
         corr_norm = torch.linalg.matrix_norm(corr,keepdim=True)
         normalized_corr = corr/(corr_norm + 1e-6).detach()
@@ -78,15 +78,15 @@ class EllipsoidPackingLoss:
         diff = centers[:, None, :] - centers[None, :, :]
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         #print("dist=",dist_matrix)
-        #add 1e-6to avoid dividing by zero
+        #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
         self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
-        ll += ((1.0 - dist_matrix[mask]/sum_radii[mask].detach())**2).sum()*self.lw1/nbr_mask.float().sum()
+        ll += 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**2).sum()*self.lw1/nbr_mask.float().sum()
         # loss 2: alignment loss (1 - cosine-similarity)
         sim = torch.matmul(eigens,eigens.transpose(0,1))**2
-        ll += (1.0 - torch.square(sim[mask])).sum()*self.lw2/nbr_mask.float().sum()
+        ll += 0.5*(1.0 - torch.square(sim[mask])).sum()*self.lw2/nbr_mask.float().sum()
         
         if self.record:
             self.status["corrs"] = corr.cpu().detach()
