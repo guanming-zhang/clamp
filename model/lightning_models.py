@@ -37,7 +37,7 @@ class CLAP(pl.LightningModule):
         elif self.hparams.optim_name == "LARS":
             optimizer = lars.LARS(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
-                                  eta = self.hparams.eta,
+                                  trust_coefficient = self.hparams.eta,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         else:
@@ -210,13 +210,28 @@ class LinearClassification(pl.LightningModule):
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
-            num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto"):
+            num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto",precision:str="16-true"):
+    '''
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
                          devices=gpu_per_node,
                          num_nodes=num_nodes,
+                         precision=precision,
                          strategy=strategy,
                          max_epochs=max_epochs,
+                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
+                                                                  save_top_k = -1,
+                                                                  save_last = True,
+                                                                  every_n_epochs = every_n_epochs,
+                                                                  dirpath=checkpoint_path,
+                                                                  filename = "CLAP-{epoch:02d}.ckpt"),
+                                    pl.callbacks.LearningRateMonitor('epoch')])
+    '''
+    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         accelerator="gpu",
+                         devices=1,
+                         max_epochs=max_epochs,
+                         precision=precision,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,
                                                                   save_last = True,
@@ -263,13 +278,15 @@ def train_lc(ssl_model:pl.LightningModule,
             linear_model:pl.LightningModule,
             train_loader: torch.utils.data.DataLoader,
             test_loader:torch.utils.data.DataLoader,
+            val_loader:torch.utils.data.DataLoader,
             max_epochs:int,
             every_n_epochs:int,
             checkpoint_path:str,
             mode:str,
             num_nodes:int=1,
             gpu_per_nodes:int=1,
-            strategy:str = "auto"):
+            strategy:str = "auto",
+            precision:str="16-true"):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'last.ckpt')
     if os.path.isfile(trained_filename):
@@ -297,6 +314,7 @@ def train_lc(ssl_model:pl.LightningModule,
                          num_nodes=num_nodes,
                          strategy=strategy,
                          max_epochs=max_epochs,
+                         precision=precision,
                          callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
                                                                 mode = "max",
                                                                 dirpath=os.path.join(checkpoint_path,"_temp"),
@@ -305,7 +323,7 @@ def train_lc(ssl_model:pl.LightningModule,
         trainer.logger._default_hp_metric = False 
         ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,"last.ckpt"))
         linear_model.set_backbone(ssl_model.backbone)
-        trainer.fit(linear_model, train_loader)
+        trainer.fit(linear_model, train_loader,val_loader)
         test_output = trainer.test(linear_model,test_loader)
         subprocess.check_output(["mv " + os.path.join(best_dir,"*") + " " + checkpoint_path], text=True,shell=True)  
         subprocess.check_output(["rm", "-r", os.path.join(temp_dir)], text=True) 
@@ -326,6 +344,7 @@ def train_lc(ssl_model:pl.LightningModule,
                          devices=gpu_per_nodes,
                          num_nodes=num_nodes,
                          strategy=strategy,
+                         precision=precision,
                          max_epochs=max_epochs,
                          callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,
@@ -341,7 +360,7 @@ def train_lc(ssl_model:pl.LightningModule,
             if os.path.isfile(os.path.join(checkpoint_path,"init.ckpt")):
                 linear_model.load_from_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
             linear_model.set_backbone(ssl_model.backbone)
-            trainer.fit(linear_model, train_loader)
+            trainer.fit(linear_model, train_loader,val_loader)
             test_output = trainer.test(linear_model,test_loader)
             if result["best_training_loss"]> test_output[0]["test_loss"]:
                 subprocess.check_output(["rm", "-r", best_dir], text=True)

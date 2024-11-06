@@ -176,7 +176,7 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
     if "RandomGrayscale" in info["augmentations"]:
         trans_list.append(transforms.RandomGrayscale(p=info["grayscale_prob"]))
     if "GaussianBlur" in info["augmentations"]:
-        trans_list.append(transforms.RandomApply(transforms.GaussianBlur(kernel_size=info["blur_kernel_size"]),p=info["blur_prob"]))
+        trans_list.append(transforms.RandomApply([transforms.GaussianBlur(kernel_size=info["blur_kernel_size"])],p=info["blur_prob"]))
     if "RandomHorizontalFlip" in info["augmentations"]:
         trans_list.append(transforms.RandomHorizontalFlip(p=info["hflip_prob"]))
     #trans_list.append(transforms.ToTensor())

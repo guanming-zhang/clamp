@@ -4,7 +4,7 @@ import json
 import torchvision
 
 class BackboneNet(torch.nn.Module):
-    def __init__(self,resnet_type:str="resnet18",use_projection_header=False,backbone_out_dim,proj_out_dim=-1):
+    def __init__(self,resnet_type:str="resnet18",use_projection_header=False,backbone_out_dim=2048,proj_out_dim=-1):
         super().__init__()
         self.model_name = "BackboneNet"
         # this is a sloppy way of recording hyperperameters
