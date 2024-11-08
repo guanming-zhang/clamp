@@ -105,7 +105,7 @@ class Config:
             options_type = {
             "num_nodes":"int",
             "gpus_per_node":"int",
-            "num_workers":"int",
+            "cpus_per_node":"int",
             "precision":"string",
             "strategy":"string"}
         elif section == "DATA":

@@ -196,11 +196,11 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
     if validation:
         val_dataset = WrappedDataset(val_dataset,norm_transforms)
 
-    ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = ssl_batch_size,shuffle=True,drop_last=True,num_workers=num_workers)
-    lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers=num_workers)
-    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers)
+    ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = ssl_batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
+    lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
     if validation:
-        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers)
+        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
     else:
         val_loader = None
     return ssl_train_loader,lc_train_loader,test_loader,val_loader
