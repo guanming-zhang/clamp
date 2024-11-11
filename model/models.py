@@ -51,7 +51,7 @@ class BackboneNet(torch.nn.Module):
     def forward(self,x):
         return self.projection_header(self.net(x))
 
-class BnLinearNet(torch.nn.Module):
+class BnLinearNet(torch.nn.Module):#
     def __init__(self,in_dim,out_dim):
         super().__init__()
         self.model_name = "LinearNet"

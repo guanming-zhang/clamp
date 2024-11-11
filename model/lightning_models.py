@@ -11,7 +11,8 @@ import os
 import re
 import subprocess
 import json
-from pytorch_lightning.profilers import SimpleProfiler, AdvancedProfiler, PyTorchProfiler
+from pytorch_lightning.profilers import SimpleProfiler
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_header:bool,proj_out_dim:int,
@@ -214,8 +215,10 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
             num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto",precision:str="16-true"):
-    
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="clap_csv")
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="clap_tensorboard")
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         logger=[csv_logger, tensorboard_logger],
                          accelerator="gpu",
                          devices=gpu_per_node,
                          num_nodes=num_nodes,
@@ -252,7 +255,6 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
         print(f'Found pretrained model at {pretrained_filename}, loading...')
         model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
     else:
-        pl.seed_everything(137) # To be reproducable
         trainer.fit(model, train_loader)
         model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
     return model
