@@ -45,14 +45,14 @@ class Timer:
 # For reading the input configuration
 ########################################    
 class Config:
-    def __init__(self,input_dir:str,defalut_config_file:str=""):
+    def __init__(self,input_dir:str,default_config_file:str=""):
         input_file= os.path.join(input_dir,'config.ini')
         if not os.path.isfile(input_file):
             raise FileNotFoundError("The input file" + input_file + "does not exist")
         config = configparser.ConfigParser()
-        if len(defalut_config_file) > 0:
+        if len(default_config_file) > 0:
             default_config = configparser.ConfigParser()
-            default_config.read(defalut_config_file)
+            default_config.read(default_config_file)
 
         config.read(input_file)
         self.loc = input_dir
@@ -61,7 +61,7 @@ class Config:
         self.INFO,self.DATA,self.SSL,self.LC,self.IO= {},{},{},{},{}
         
         #----------------set the default configuration first ----------
-        if len(defalut_config_file)>0:
+        if len(default_config_file)>0:
             print("Loading default settings...")
             self._set_options(section="INFO",config = default_config)
             self._set_options(section="DATA",config = default_config)
