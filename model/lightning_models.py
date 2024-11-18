@@ -14,6 +14,37 @@ import json
 from pytorch_lightning.profilers import SimpleProfiler
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
+# To profile the memory
+# Keep a max of 100,000 alloc/free events in the recorded history
+# leading up to the snapshot.
+# see https://pytorch.org/blog/understanding-gpu-memory-1/
+MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000
+
+def start_record_memory_history() -> None:
+   if not torch.cuda.is_available():
+       print("CUDA unavailable. Not recording memory history")
+       raise ValueError("CUDA unavailable. Not recording memory history")
+   torch.cuda.memory._record_memory_history(
+       max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT
+   )
+
+def stop_record_memory_history() -> None:
+    if not torch.cuda.is_available():
+       print("CUDA unavailable. Not recording memory history")
+       raise ValueError("CUDA unavailable. Not recording memory history")
+    torch.cuda.memory._record_memory_history(enabled=None)
+
+def export_memory_snapshot(file_path:str) -> None:
+   if not torch.cuda.is_available():
+       print("CUDA unavailable. Not recording memory history")
+       raise ValueError("CUDA unavailable. Not recording memory history")
+   try:
+       print(f"Saving snapshot to local file:" + file_path )
+       torch.cuda.memory._dump_snapshot(file_path)
+   except Exception as e:
+       print(f"Failed to capture memory snapshot {e}")
+       return
+
 class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_header:bool,proj_out_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
@@ -57,7 +88,7 @@ class CLAP(pl.LightningModule):
         preds = self.backbone(imgs)
         # the labels are dummy since label is not used in ssl
         loss = self.loss_fn(preds,None)
-        self.train_step_outputs.append(loss)
+        self.train_step_outputs.append(loss.detach())
         return loss
     
     def on_train_epoch_end(self):
@@ -112,7 +143,8 @@ class LinearClassification(pl.LightningModule):
         labels = torch.cat(labels,dim=0)        
         preds = self.forward(imgs)
         loss = F.cross_entropy(preds, labels)
-        self.train_step_outputs.append(loss)
+        self.train_step_outputs.append(loss.detach())
+        return loss
     
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
@@ -143,7 +175,7 @@ class LinearClassification(pl.LightningModule):
         self.log('batch_test_loss', loss, prog_bar=True)
         self.log('batch_test_acc1', acc1, prog_bar=True)
         self.log('batch_test_acc5', acc5, prog_bar=True)
-        self.test_step_outputs.append({'test_loss': loss, 'test_acc1': acc1, 'test_acc5':acc5})
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
 
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
@@ -214,7 +246,11 @@ class LinearClassification(pl.LightningModule):
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
-            num_nodes:int=1,gpu_per_node:int=1,strategy:str="auto",precision:str="16-true"):
+            num_nodes:int=1,
+            gpu_per_node:int=1,
+            strategy:str="auto",
+            precision:str="16-true",
+            prof_mem:bool=False):
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="clap_csv")
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="clap_tensorboard")
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
@@ -255,8 +291,13 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
         print(f'Found pretrained model at {pretrained_filename}, loading...')
         model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
     else:
+        if prof_mem:
+            start_record_memory_history()
         trainer.fit(model, train_loader)
         model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
+        if prof_mem:
+            export_memory_snapshot(os.path.join(checkpoint_path),"profile_memory.pickle")
+            stop_record_memory_history()
     return model
 
 def get_top_n_latest_checkpoints(directory, n):

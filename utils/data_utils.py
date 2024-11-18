@@ -166,7 +166,7 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
         trans_list.append(transforms.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
     
     if "RandomResizedCrop" in info["augmentations"]:
-        trans_list.append(transforms.RandomResizedCrop(info["crop_size"]))
+        trans_list.append(transforms.RandomResizedCrop(info["crop_size"],scale=(info["crop_min_scale"],info["crop_max_scale"])))
     if "ColorJitter" in info["augmentations"]:
         trans_list.append(transforms.RandomApply([transforms.ColorJitter(
                                                     brightness=info["jitter_brightness"],

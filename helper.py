@@ -108,7 +108,8 @@ class Config:
             "cpus_per_node":"int",
             "precision":"string",
             "strategy":"string",
-            "fix_random_seed":"boolean"}
+            "fix_random_seed":"boolean",
+            "prof_mem":"string"}
         elif section == "DATA":
             options_type = {
             "dataset":"string",
