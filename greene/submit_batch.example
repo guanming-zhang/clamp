@@ -1,17 +1,20 @@
 #!/bin/bash
 #SBATCH --job-name=ssl
-#SBATCH --output=output_%j.log  # Save output to output_JOBID.log
-#SBATCH --error=error_%j.log    # Save error to error_JOBID.log
-#SBATCH --nodes=2               # Number of nodes 
-#SBATCH --ntasks-per-node=1     # One task per node, good for ddp
-#SBATCH --cpus-per-task=16      # Number of CPUs per task 
-#SBATCH --gres=gpu:4            # Number of GPUs per node 
-#SBATCH --time=24:00:00         # Maximum runtime 
-#SBATCH --mem=64G               # Memory per node 
+#SBATCH --output=output_%j.log             
+#SBATCH --error=error_%j.log               
+#SBATCH --nodes=1                  
+#SBATCH --ntasks-per-node=2                
+#SBATCH --cpus-per-task=4      
+#SBATCH --gres=gpu:2                        
+#SBATCH --time=06:30:00                        
+#SBATCH --mem=6GB                 
+
+## comments:
+## see https://lightning.ai/docs/pytorch/stable/clouds/cluster_advanced.html
 
 
-singularity exec --nv --overlay /scratch/gz2241/sig-python/overlay-15GB-500K.ext3:ro \
-            /scratch/work/public/singularity/cuda11.6.124-cudnn8.4.0.27-devel-ubuntu20.04.4.sif\
+srun singularity exec --nv --overlay /scratch/gz2241/sig-ml/overlay-15GB-500K.ext3:ro \
+            /scratch/work/public/singularity/cuda12.1.1-cudnn8.9.0-devel-ubuntu22.04.2.sif\
             /bin/bash -c  "source /ext3/env.sh; 
-            conda activate CONDA_ENV;
-            python PYTHON_EXE ARGS"
+            conda activate dl_env;
+            python main.py ./simulations/grid_search_test2/dir1#SSL#-lr-0.1-batch_size-128-lw0-10.0-lw2-0.1-#LC#-lr-0.2-run-00 ./default_config_cifar10.ini"

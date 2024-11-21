@@ -40,7 +40,7 @@ class Timer:
     def __exit__(self, *args):
         self.end_time = time.time()
         time_diff = self.end_time - self.start_time
-        print(f"{self._process_name} took {time_diff} sec")
+        print(f"-------{self._process_name} took {time_diff} sec-----")
 ########################################
 # For reading the input configuration
 ########################################    
@@ -105,7 +105,7 @@ class Config:
             options_type = {
             "num_nodes":"int",
             "gpus_per_node":"int",
-            "cpus_per_node":"int",
+            "num_cpus":"int",
             "precision":"string",
             "strategy":"string",
             "fix_random_seed":"boolean",

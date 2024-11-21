@@ -19,7 +19,8 @@ if __name__ == '__main__':
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
-    ssl_train_loader,lc_train_loader,test_loader,val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,lc_batch_size,config.INFO["cpus_per_node"]*config.INFO["num_nodes"])
+    ssl_train_loader,lc_train_loader,test_loader,val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,lc_batch_size,
+                                                                                        config.INFO["num_cpus"])
     
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
@@ -51,11 +52,15 @@ if __name__ == '__main__':
     ssl_dir = os.path.join(config.loc,"ssl")
     if not os.path.isdir(ssl_dir):
         os.makedirs(ssl_dir)
-    ssl_model = lightning_models.train_clap(model=ssl_model, 
+    with helper.Timer("SSL Training"):
+        ssl_model = lightning_models.train_clap(model=ssl_model, 
                                         train_loader = ssl_train_loader,
                                         max_epochs=config.SSL["n_epochs"],
                                         every_n_epochs = config.SSL["save_every_n_epochs"],
                                         precision = config.INFO["precision"],
+                                        strategy = config.INFO["strategy"],
+                                        num_nodes = config.INFO["num_nodes"],
+                                        gpu_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir)
     lc_dir = os.path.join(config.loc,"lc")
     # setup the linear classification
@@ -76,13 +81,17 @@ if __name__ == '__main__':
                  weight_decay = config.LC["weight_decay"],
                  n_epochs = config.LC["n_epochs"])
     lc_model.set_backbone(ssl_model.backbone)
-    lc_model = lightning_models.train_lc(ssl_model = ssl_model, 
-            ssl_ckpt_path = ssl_dir,
-            linear_model = lc_model,
-            train_loader = lc_train_loader,
-            val_loader = val_loader,
-            test_loader = test_loader,
-            max_epochs = config.LC["n_epochs"],
-            precision = config.INFO["precision"],
-            checkpoint_path = lc_dir,
-            mode = config.LC["training_mode"])
+    with helper.Timer("LC Training"):
+        lc_model = lightning_models.train_lc(ssl_model = ssl_model, 
+                ssl_ckpt_path = ssl_dir,
+                linear_model = lc_model,
+                train_loader = lc_train_loader,
+                val_loader = val_loader,
+                test_loader = test_loader,
+                max_epochs = config.LC["n_epochs"],
+                precision = config.INFO["precision"],
+                checkpoint_path = lc_dir,
+                strategy = config.INFO["strategy"],
+                num_nodes = config.INFO["num_nodes"],
+                gpu_per_node = config.INFO["gpus_per_node"], 
+                mode = config.LC["training_mode"])

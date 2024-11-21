@@ -13,7 +13,8 @@ class JobManager:
         self.base_config = config 
         self.batch_dict = {"NUM_NODES":"1",
                            "GPUS_PER_NODE":"1",
-                           "CPUS_PER_NODE":"1",
+                           "CPUS_PER_TASK":"1",
+                           "NTASKS_PER_NODE":"1",
                            "GRES":"gpu",
                            "CONDA_ENV":"dl_env",
                            "TIME":"100:00:00",
@@ -28,16 +29,21 @@ class JobManager:
             for key, value in config[section].items():
                 print(f"{key} = {value}")
             print()
-    def set_computation_resource(self,num_nodes:int,gpus_per_node:int,cpus_per_node:int,gres:str = "gpu"):
+    def set_computation_resource(self,num_nodes:int,gpus_per_node:int,cpus_per_gpu:int,gres:str = "gpu"):
         # update the base config
         self.base_config.set("INFO","num_nodes",str(num_nodes))
         self.base_config.set("INFO","gpus_per_node",str(gpus_per_node))
-        self.base_config.set("INFO","cpus_per_node",str(cpus_per_node))
+        self.base_config.set("INFO","num_cpus",str(cpus_per_gpu*gpus_per_node*num_nodes))
         # update the batch options
         self.batch_dict["NUM_NODES"] = str(num_nodes)
         self.batch_dict["GPUS_PER_NODE"] = str(gpus_per_node)
-        self.batch_dict["CPUS_PER_NODE"] = str(cpus_per_node)
+        self.batch_dict["CPUS_PER_TASK"] = str(cpus_per_gpu)
+        # set the ntasks_per_node = gpus_per_node
+        # see https://lightning.ai/docs/pytorch/stable/clouds/cluster_advanced.html
+        self.batch_dict["NTASKS_PER_NODE"] = str(gpus_per_node)
         self.batch_dict["GRES"] = gres
+        if gpus_per_node*num_nodes == 1:
+            self.base_config.set("INFO","strategy",ddp)
         self.default_comp_res = False
     
     def generate_config_combinations(self,config_options:dict)->configparser.ConfigParser:
@@ -105,7 +111,7 @@ class JobManager:
     def submit_sbatch(self,nsleep = 0.05):
         subprocess.run(["sbatch", "submit_batch.sbatch"])
         time.sleep(nsleep)
-        subprocess.run(["rm", "submit_batch.sbatch"])
+        #subprocess.run(["rm", "submit_batch.sbatch"])
     
     def submit(self,base_dir:str,config_dict:dict,batch_dict:dict,n_repeat:int=1):
         if self.default_comp_res:
@@ -133,9 +139,9 @@ if __name__ == "__main__":
     # around 5 minutes per epoch
     # if batch size is too small or num_cpus is too low then GPU utility will be low
     jm = JobManager("./default_config_cifar10.ini")
-    options = {"SSL":{"lr":[0.01,0.1,1.0],"batch_size":[128],"lw0":[0.01,0.1,1.0],"lw2":[0.01,0.1,1.0]},
-               "LC":{"lr":[0.01,0.1,1.0],}}
-
-    jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_node=8,gres="gpu")
-    jm.submit("./simulations/grid_search",options,{"TIME":"06:30:00","MEM_PER_NODE":"6GB"})
+    options = {"SSL":{"lr":[0.1],"batch_size":[128],"lw0":[0.1,10.0],"lw2":[0.1]},
+               "LC":{"lr":[0.2],}}
+    # cpus_per_taks is equivalent to cpus_per_gpu in our setting
+    jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
+    jm.submit("./simulations/grid_search_test2",options,{"TIME":"06:30:00","MEM_PER_NODE":"6GB"})
     

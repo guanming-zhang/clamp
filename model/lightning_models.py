@@ -94,7 +94,7 @@ class CLAP(pl.LightningModule):
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
-        self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
+        self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
 
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
@@ -172,16 +172,16 @@ class LinearClassification(pl.LightningModule):
         acc5 = (top5 == labels.view(-1, 1)).float().sum(dim=1).mean()
 
         # Log the test loss and accuracy
-        self.log('batch_test_loss', loss, prog_bar=True)
-        self.log('batch_test_acc1', acc1, prog_bar=True)
-        self.log('batch_test_acc5', acc5, prog_bar=True)
+        self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
         self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
 
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
-        self.log('train_epoch_loss', avg_loss, prog_bar=True)  # Log epoch loss
+        self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
     
@@ -192,9 +192,9 @@ class LinearClassification(pl.LightningModule):
         avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         
         # Log the aggregated metrics
-        self.log('test_loss', avg_loss)
-        self.log('test_acc1', avg_top1_acc)
-        self.log('test_acc5', avg_top5_acc)
+        self.log('test_loss', avg_loss,sync_dist=True)
+        self.log('test_acc1', avg_top1_acc,sync_dist=True)
+        self.log('test_acc5', avg_top5_acc,sync_dist=True)
         return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
 
 
@@ -354,8 +354,11 @@ def train_lc(ssl_model:pl.LightningModule,
                                     pl.callbacks.LearningRateMonitor('epoch')])
     '''
     #linear_model.save_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="lc_csv")
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="lc_tensorboard")
     if mode == "load_last_pretrained_epoch":
         trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         logger=[csv_logger,tensorboard_logger],
                          accelerator="gpu",
                          devices=gpu_per_nodes,
                          num_nodes=num_nodes,
@@ -364,7 +367,7 @@ def train_lc(ssl_model:pl.LightningModule,
                          precision=precision,
                          callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
                                                                 mode = "max",
-                                                                dirpath=os.path.join(checkpoint_path,"_temp"),
+                                                                dirpath=os.path.join(checkpoint_path),
                                                                 filename = 'LC.ckpt'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
         trainer.logger._default_hp_metric = False 
@@ -373,10 +376,7 @@ def train_lc(ssl_model:pl.LightningModule,
         linear_model.set_backbone(ssl_model.backbone)
         trainer.fit(linear_model, train_loader,val_loader)
         test_output = trainer.test(linear_model,test_loader)
-        temp_dir = os.path.join(checkpoint_path,"_temp")
-        subprocess.check_output(["mv " + os.path.join(temp_dir,"*") + " " + checkpoint_path], text=True,shell=True)  
-        subprocess.check_output(["rm", "-r", os.path.join(temp_dir)], text=True) 
-        result = {"best_training_loss":test_output[0]["test_loss"],
+        result = {"best_test_loss":test_output[0]["test_loss"],
                   "best_test_acc1":test_output[0]["test_acc1"],
                   "best_test_acc5":test_output[0]["test_acc5"]
                   }
