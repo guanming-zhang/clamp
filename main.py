@@ -60,7 +60,7 @@ if __name__ == '__main__':
                                         precision = config.INFO["precision"],
                                         strategy = config.INFO["strategy"],
                                         num_nodes = config.INFO["num_nodes"],
-                                        gpu_per_node = config.INFO["gpus_per_node"], 
+                                        gpus_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir)
     lc_dir = os.path.join(config.loc,"lc")
     # setup the linear classification
@@ -93,5 +93,5 @@ if __name__ == '__main__':
                 checkpoint_path = lc_dir,
                 strategy = config.INFO["strategy"],
                 num_nodes = config.INFO["num_nodes"],
-                gpu_per_node = config.INFO["gpus_per_node"], 
+                gpus_per_node = config.INFO["gpus_per_node"], 
                 mode = config.LC["training_mode"])

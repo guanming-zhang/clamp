@@ -89,13 +89,15 @@ class CLAP(pl.LightningModule):
         # the labels are dummy since label is not used in ssl
         loss = self.loss_fn(preds,None)
         self.train_step_outputs.append(loss.detach())
+        self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
         return loss
     
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
-
+        # refresh the iteration loss at the end of every epoch
+        self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
 
@@ -144,6 +146,7 @@ class LinearClassification(pl.LightningModule):
         preds = self.forward(imgs)
         loss = F.cross_entropy(preds, labels)
         self.train_step_outputs.append(loss.detach())
+        self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -182,6 +185,8 @@ class LinearClassification(pl.LightningModule):
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
         self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
+        # refresh the iteration loss at the end of every epoch
+        self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
     
@@ -247,7 +252,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
             num_nodes:int=1,
-            gpu_per_node:int=1,
+            gpus_per_node:int=1,
             strategy:str="auto",
             precision:str="16-true",
             prof_mem:bool=False):
@@ -256,7 +261,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
                          accelerator="gpu",
-                         devices=gpu_per_node,
+                         devices=gpus_per_node,
                          num_nodes=num_nodes,
                          precision=precision,
                          strategy=strategy,
@@ -331,7 +336,7 @@ def train_lc(ssl_model:pl.LightningModule,
             checkpoint_path:str,
             mode:str,
             num_nodes:int=1,
-            gpu_per_nodes:int=1,
+            gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true"):
     # Check whether pretrained model exists. If yes, load it and skip training
@@ -360,7 +365,7 @@ def train_lc(ssl_model:pl.LightningModule,
         trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger,tensorboard_logger],
                          accelerator="gpu",
-                         devices=gpu_per_nodes,
+                         devices=gpus_per_node,
                          num_nodes=num_nodes,
                          strategy=strategy,
                          max_epochs=max_epochs,
@@ -398,7 +403,7 @@ def train_lc(ssl_model:pl.LightningModule,
         for f in files:
             trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          accelerator="gpu",
-                         devices=gpu_per_nodes,
+                         devices=gpus_per_node,
                          num_nodes=num_nodes,
                          strategy=strategy,
                          precision=precision,
