@@ -291,7 +291,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     '''
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(checkpoint_path, 'last.ckpt')
+    pretrained_filename = os.path.join(checkpoint_path, 'CLAP-epoch={}.ckpt'.format(max_epochs-1))
     if os.path.isfile(pretrained_filename):
         print(f'Found pretrained model at {pretrained_filename}, loading...')
         model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters

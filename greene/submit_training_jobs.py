@@ -5,6 +5,7 @@ from itertools import product
 from copy import deepcopy
 import subprocess
 import time
+import shutil
 
 class JobManager:
     def __init__(self,default_config_path:str):
@@ -111,7 +112,7 @@ class JobManager:
     def submit_sbatch(self,nsleep = 0.05):
         subprocess.run(["sbatch", "submit_batch.sbatch"])
         time.sleep(nsleep)
-        #subprocess.run(["rm", "submit_batch.sbatch"])
+        subprocess.run(["rm", "submit_batch.sbatch"])
     
     def submit(self,base_dir:str,config_dict:dict,batch_dict:dict,n_repeat:int=1):
         if self.default_comp_res:
@@ -133,7 +134,30 @@ class JobManager:
                 self.create_sbatch_file(base_batch_dict)
                 self.submit_sbatch()
                 count += 1
-
+        def continue_prev_submit(self,base_dir:str,batch_dict:dict):
+            folder_list = os.listdir(base_dir)
+            for folder in folder_list:
+                folder_path = os.path.join(base_dir,folder)
+                if not "run" in folder:
+                    continue
+                config = configparser.ConfigParser()
+                config.read(os.path.join(folder_path,"config.ini"))
+                num_nodes = config["INFO"].getint("num_nodes")
+                gpus_per_node = config["INFO"].getint("gpus_per_node")
+                cpus_per_gpu = config["INFO"].getint("cpus_per_node")
+                self.set_computation_resource(num_nodes,gpus_per_node,cpus_per_gpu,gres="gpu")
+                base_batch_dict = copy.deepcopy(self.batch_dict)
+                base_batch_dict.update(batch_dict)
+                base_batch_dict["ARG1"] = folder_path
+                if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
+                    continue
+                if os.path.isdir(os.path.join(folder_path,"lc")):
+                    shutil.rmtree(os.path.join(folder_path,"lc"))
+                self.create_sbatch_file(base_batch_dict)
+                self.submit_sbatch()       
+        
+        
+        
 if __name__ == "__main__":
     # for resnet+batch size=256+cifat10, need around 3GB mem per GPU, 3GB*gpus_per_node per node
     # around 5 minutes per epoch
