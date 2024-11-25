@@ -5,6 +5,7 @@ from PIL import Image
 from torch.utils.data import random_split,Dataset
 from torchvision import datasets
 from torchvision import transforms
+import os
 import time
 
 def show_images(imgs,nrow,ncol,titles = None):
@@ -158,6 +159,12 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
         test_dataset = datasets.CIFAR10(root=data_dir, train=False,download=True)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+    elif info["dataset"] == "IMAGENET1K":
+        data_dir = "./datasets/imagenet1K"
+        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
+        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"test"))
+        if validation:
+            val_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
 
         
     trans_list = [transforms.ToTensor()]

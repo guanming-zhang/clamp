@@ -33,7 +33,7 @@ class JobManager:
         # update the base config
         self.base_config.set("INFO","num_nodes",str(num_nodes))
         self.base_config.set("INFO","gpus_per_node",str(gpus_per_node))
-        self.base_config.set("INFO","num_cpus",str(cpus_per_gpu*gpus_per_node*num_nodes))
+        self.base_config.set("INFO","cpus_per_gpu",str(cpus_per_gpu))
         # update the batch options
         self.batch_dict["NUM_NODES"] = str(num_nodes)
         self.batch_dict["GPUS_PER_NODE"] = str(gpus_per_node)
@@ -43,7 +43,7 @@ class JobManager:
         self.batch_dict["NTASKS_PER_NODE"] = str(gpus_per_node)
         self.batch_dict["GRES"] = gres
         if gpus_per_node*num_nodes == 1:
-            self.base_config.set("INFO","strategy",ddp)
+            self.base_config.set("INFO","strategy","auto")
         self.default_comp_res = False
     
     def generate_config_combinations(self,config_options:dict)->configparser.ConfigParser:

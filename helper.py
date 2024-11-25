@@ -105,7 +105,7 @@ class Config:
             options_type = {
             "num_nodes":"int",
             "gpus_per_node":"int",
-            "num_cpus":"int",
+            "cpus_per_gpu":"int",
             "precision":"string",
             "strategy":"string",
             "fix_random_seed":"boolean",
