@@ -20,7 +20,7 @@ if __name__ == '__main__':
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     ssl_train_loader,lc_train_loader,test_loader,val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,lc_batch_size,
-                                                                                        config.INFO["num_cpus"])
+                                                                                        num_workers = config.INFO["cpus_per_gpu"])
     
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
