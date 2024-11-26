@@ -286,7 +286,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                   save_last = True,
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
-                                                                  filename = "CLAP-{epoch:02d}.ckpt"),
+                                                                  filename = "CLAP-{epoch:02d}"),
                                     pl.callbacks.LearningRateMonitor('epoch')])
     '''
     trainer.logger._default_hp_metric = False 
@@ -298,6 +298,9 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     else:
         if prof_mem:
             start_record_memory_history()
+        # continue training
+        if os.path.isfile(os.path.join(checkpoint_path,"last.ckpt")):
+            model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
         trainer.fit(model, train_loader)
         model = CLAP.load_from_checkpoint(os.path.join(checkpoint_path,"last.ckpt")) # Load best checkpoint after training
         if prof_mem:
@@ -373,7 +376,7 @@ def train_lc(ssl_model:pl.LightningModule,
                          callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
                                                                 mode = "max",
                                                                 dirpath=os.path.join(checkpoint_path),
-                                                                filename = 'LC.ckpt'),
+                                                                filename = 'LC'),
                                     pl.callbacks.LearningRateMonitor('epoch')])
         trainer.logger._default_hp_metric = False 
         ssl_model = CLAP.load_from_checkpoint(os.path.join(ssl_ckpt_path,"last.ckpt"))
