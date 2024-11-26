@@ -446,5 +446,188 @@ def train_lc(ssl_model:pl.LightningModule,
         raise NotImplementedError("mode = {} is not implemented".format(mode))
         
     return linear_model
+
+# this class is similar to linear classification
+# the difference is that here both batckbon and linear_net
+# will be fine-tuned
+class FineTune(pl.LightningModule):
+    def __init__(self,
+                 optim_name:str,lr:float,momentum:float,weight_decay:float,
+                 n_epochs:int):
+        super().__init__()
+        self.save_hyperparameters()
+        self.backbone = None
+        self.linear_net = None
+        self.train_step_outputs = []
+        self.test_step_outputs = []
+        self.train_epoch_loss = []
+        self.test_acc1 = 0.0
+        self.test_acc5 = 0.0
     
+    def set_backbone(self,backbone):
+        # need to call this function
+        self.backbone = backbone
+        self.backbone.remove_projection_header()
+    
+    def set_linear_net(self,linear_net):
+        self.linear_net = linear_net
+    
+    def on_fit_start(self):
+        if not self.backbone:
+            raise Exception("need to set the backbone before training or validating")
+        if not self.linear_net:
+            raise Exception("need to set the linear_net before training or validating") 
+        # Save the initial state of the model
+        init_ckpt_path = os.path.join(self.trainer.default_root_dir,"init.ckpt")
+        if not os.path.isfile(init_ckpt_path):
+            self.trainer.save_checkpoint(init_ckpt_path)
+    def forward(self, x):
+        # Extract features from the frozen backbone
+        # Do NOT freeze backbone with nograd
+        features = self.backbone(x)
+        return self.linear_net(features)
+
+    def training_step(self, batch, batch_idx):
+        imgs,labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)        
+        preds = self.forward(imgs)
+        loss = F.cross_entropy(preds, labels)
+        self.train_step_outputs.append(loss.detach())
+        self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)  
+        preds = self.forward(imgs).argmax(dim=-1)
+        acc = (labels == preds).float().mean()
+        self.log('val_acc', acc, prog_bar=True)
+        return acc
+    
+    def test_step(self, batch, batch_idx):
+        # Unpack the batch (input data and labels)
+        imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)  
+        logits = self.forward(imgs)
+        loss = F.cross_entropy(logits, labels)
+
+        # Compute accuracy
+        # Calculate top-1 accuracy
+        acc1 = (logits.argmax(dim=1) == labels).float().mean()
         
+        # Calculate top-5 accuracy
+        top5 = torch.topk(logits, k=5, dim=1).indices
+        acc5 = (top5 == labels.view(-1, 1)).float().sum(dim=1).mean()
+
+        # Log the test loss and accuracy
+        self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+
+    def on_train_epoch_end(self):
+        # `outputs` is a list of losses from each batch returned by training_step()
+        avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
+        # Save epoch loss for future reference
+        self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
+        # refresh the iteration loss at the end of every epoch
+        self.train_step_outputs = []
+        # Save epoch loss for future reference
+        self.train_epoch_loss.append(avg_loss.item())
+    
+    def on_test_epoch_end(self):
+        # Aggregate the losses and accuracies for the entire test set
+        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
+        
+        # Log the aggregated metrics
+        self.log('test_loss', avg_loss,sync_dist=True)
+        self.log('test_acc1', avg_top1_acc,sync_dist=True)
+        self.log('test_acc5', avg_top5_acc,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
+
+
+    def configure_optimizers(self):
+        # Need to use list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+        # to optimize the parameters from both networks
+        if self.hparams.optim_name == "SGD":
+            optimizer = optim.SGD(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+                                  lr=self.hparams.lr,
+                                  momentum=self.hparams.momentum,
+                                  weight_decay=self.hparams.weight_decay)
+        elif self.hparams.optim_name == "AdamW":
+            optimizer = optim.AdamW(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+                                  lr=self.hparams.lr,
+                                  momentum=self.hparams.momentum,
+                                  weight_decay=self.hparams.weight_decay)
+        else:
+            raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
+
+        return [optimizer]
+    
+    def state_dict(self):
+        # override the default state dict to avoid saving the backbone
+        return {
+            'model_state_dict': self.linear_net.state_dict(),
+            'optimizer_state_dict': self.optimizers().state_dict(),
+            'scheduler_state_dict': self.lr_schedulers().state_dict() 
+        }
+    
+    def save_networks(self,dir_path):
+        torch.save(self.backbone.state_dict(),os.path.join(dir_path,"backbone.ckpt"))
+        torch.save(self.linear_net.state_dict(),os.path.join(dir_path,"backbone.ckpt"))
+
+
+def train_finetune(backbone:torch.nn.Module,
+            linear_net:torch.nn.Module, 
+            finetune_model:pl.LightningModule,
+            train_loader: torch.utils.data.DataLoader,
+            test_loader:torch.utils.data.DataLoader,
+            val_loader:torch.utils.data.DataLoader,
+            max_epochs:int,
+            checkpoint_path:str,
+            num_nodes:int=1,
+            gpus_per_node:int=1,
+            strategy:str = "auto",
+            precision:str="16-true"):
+    # Check whether pretrained model exists. If yes, load it and skip training
+    trained_filename = os.path.join(checkpoint_path, 'last.ckpt')
+    if os.path.isfile(trained_filename):
+        print(f'Found pretrained model at {trained_filename}, loading...')
+        model = LinearClassification.load_from_checkpoint(trained_filename) # Automatically loads the model with the saved hyperparameters
+        return model
+    
+    #linear_model.save_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="lc_csv")
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="lc_tensorboard")
+    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         logger=[csv_logger,tensorboard_logger],
+                         accelerator="gpu",
+                         devices=gpus_per_node,
+                         num_nodes=num_nodes,
+                         strategy=strategy,
+                         max_epochs=max_epochs,
+                         precision=precision,
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                                                mode = "max",
+                                                                dirpath=os.path.join(checkpoint_path),
+                                                                filename = 'LC.ckpt'),
+                                    pl.callbacks.LearningRateMonitor('epoch')])
+    trainer.logger._default_hp_metric = False 
+    finetune_model.set_backbone(backbone)
+    finetune_model.set_linear_model(linear_net)
+
+    trainer.fit(finetune_model, train_loader,val_loader)
+    test_output = trainer.test(finetune_model,test_loader)
+    result = {"test_loss":test_output[0]["test_loss"],
+              "test_acc1":test_output[0]["test_acc1"],
+              "test_acc5":test_output[0]["test_acc5"]}
+    with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
+        json.dump(result,fs,indent=4)
+    
+    return finetune_model
+       
