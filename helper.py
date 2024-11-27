@@ -173,6 +173,35 @@ class Config:
             options_type = {
             "restart":"boolean"
             }
+        elif section == "FT":
+            # FT-finetune
+            options_type = {
+                "loss_function":"string",
+                "optimizer":"string",
+                "lr":"float",
+                "lr_scale":"string",
+                "momentum":"float",
+                "weight_decay":"float",
+                "n_epochs":"int",
+                "batch_size":"int",
+                "save_every_n_epochs":"int"
+            }
+        elif section == "TL":
+            # transfer learning(freeze the backbone)
+            options_type = {
+                "output_dim":"int",
+                "use_batch_norm":"boolean",
+                "loss_function":"string",
+                "optimizer":"string",
+                "lr":"float",
+                "lr_scale":"string",
+                "momentum":"float",
+                "weight_decay":"float",
+                "n_epochs":"int",
+                "batch_size":"int",
+                "save_every_n_epochs":"int",
+                "dataset":"string",
+            }
         return options_type
     
     def _set_options(self,section:str,config:configparser.ConfigParser):

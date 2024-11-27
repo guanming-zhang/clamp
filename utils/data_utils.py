@@ -126,7 +126,7 @@ def download_dataset(dataset_path,dataset_name):
         raise NotImplementedError("downloading for this dataset is not implemented")
 
 
-def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:int,validation:bool=True):
+def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -134,7 +134,14 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
           2) augmentations
              e.g. info["augmentations"] = ["RandomResizedCrop","GaussianBlur" ] 
           3) batch_size
+    * the average color value for different dataset are taken from 
+      a)cifar10 & mnist https://github.com/Armour/pytorch-nn-practice/blob/master/utils/meanstd.py
+      b)imagenet https://pytorch.org/vision/stable/transforms.html
     '''
+    # the default mean and average are assumed to be natural images such as imagenet 
+    # therefore the default mean and std are as follow
+    mean= [0.485, 0.456, 0.406]
+    std= [0.229, 0.224, 0.225]
     if info["dataset"] == "MNIST01":
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
@@ -148,6 +155,8 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     if info["dataset"] == "MNIST":
+        mean = [0.131,0.131,0.131]
+        std = [0.308,0.308,0.308]
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
@@ -155,18 +164,62 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "CIFAR10":
         data_dir = "./datasets/cifar10"
+        mean = [0.491,0.482,0.446]
+        std = [0.247,0.243,0.261]
         train_dataset = datasets.CIFAR10(root=data_dir, train=True,download=True)
         test_dataset = datasets.CIFAR10(root=data_dir, train=False,download=True)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+    elif info["dataset"] == "FLOWERS102":
+        train_dataset = datasets.Flowers102(root=data_dir,split="train",download=True)
+        test_dataset = datasets.Flowers102(root=data_dir,split="test",download=True)
+        val_dataset = datasets.Flowers102(root=data_dir,split="val",download=True)
+    elif info["dataset"] == "FOOD101":
+        train_dataset = datasets.Food101(root=data_dir,split="train",download=True)
+        test_dataset = datasets.Food101(root=data_dir,split="test",download=True)
+        val_dataset = datasets.Food101(root=data_dir,split="val",download=True)
+    elif info["dataset"] == "PascalVOC":
+        train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",download=True)
+        test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",download=True)
+        val_dataset = datasets.VOCDetection(root=data_dir,image_set="val",download=True)
+
     elif info["dataset"] == "IMAGENET1K":
         data_dir = "./datasets/imagenet1K"
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
         train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
-        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"test"))
+        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
         if validation:
-            val_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
-
-        
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+    elif info["dataset"] == "IMAGENET1K-1%":
+        data_dir = "./datasets/imagenet1K"
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
+        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+        # Desired number of images per class ~ 12.8
+        num_images_per_class = 13
+        num_samples = len(train_dataset)
+        # draw subset_ratio shuffled indices 
+        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
+        train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+    elif info["dataset"] == "IMAGENET1K-10%":
+        data_dir = "./datasets/imagenet1K"
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
+        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+        # Desired number of images per class ~ 128
+        num_images_per_class = 128
+        num_samples = len(train_dataset)
+        # draw subset_ratio shuffled indices 
+        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
+        train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+   
     trans_list = [transforms.ToTensor()]
     
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
@@ -187,7 +240,7 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
     if "RandomHorizontalFlip" in info["augmentations"]:
         trans_list.append(transforms.RandomHorizontalFlip(p=info["hflip_prob"]))
     #trans_list.append(transforms.ToTensor())
-    trans_list.append(transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5)))
+    trans_list.append(transforms.Normalize(mean=mean,std=std))
    
     aug_transforms = transforms.Compose(trans_list)
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
@@ -196,18 +249,16 @@ def get_dataloader(info:dict,ssl_batch_size:int,lc_batch_size:int,num_workers:in
                             transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))])
     else:
         norm_transforms = transforms.Compose([transforms.ToTensor(),
-                                     transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))])
-    ssl_train_dataset = WrappedDataset(train_dataset,aug_transforms,n_views = info["n_views"])
-    lc_train_dataset = WrappedDataset(train_dataset,norm_transforms)
+                                     transforms.Normalize(mean=mean,std=std)])
+    train_dataset = WrappedDataset(train_dataset,aug_transforms,n_views = info["n_views"])
     test_dataset = WrappedDataset(test_dataset,norm_transforms)
     if validation:
         val_dataset = WrappedDataset(val_dataset,norm_transforms)
 
-    ssl_train_loader = torch.utils.data.DataLoader(ssl_train_dataset,batch_size = ssl_batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
-    lc_train_loader = torch.utils.data.DataLoader(lc_train_dataset,batch_size = lc_batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
     if validation:
-        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = lc_batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
+        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
     else:
         val_loader = None
-    return ssl_train_loader,lc_train_loader,test_loader,val_loader
+    return train_loader,test_loader,val_loader
