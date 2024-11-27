@@ -58,7 +58,12 @@ class Config:
         self.loc = input_dir
 
         #----------------convert to properties----------------
-        self.INFO,self.DATA,self.SSL,self.LC,self.IO= {},{},{},{},{}
+        self.INFO = {}
+        self.DATA = {}
+        self.SSL = {} # self supervised learning
+        self.LC = {}  # linear classification
+        self.FT = {}  # finetune(semi-supervised learning)
+        self.TL = {}  # transfer learning(freeze backbone)
         
         #----------------set the default configuration first ----------
         if len(default_config_file)>0:
@@ -67,20 +72,22 @@ class Config:
             self._set_options(section="DATA",config = default_config)
             self._set_options(section="SSL",config = default_config)
             self._set_options(section="LC",config = default_config)
-            self._set_options(section="IO",config = default_config)
+            self._set_options(section="FT",config = default_config)
+            self._set_options(section="TL",config = default_config)
         #----------------set the configuration  ----------
         self._set_options(section="INFO",config = config)
         self._set_options(section="DATA",config = config)
         self._set_options(section="SSL",config = config)
         self._set_options(section="LC",config = config)
-        self._set_options(section="IO",config = config)
+        self._set_options(section="FT",config = config)
+        self._set_options(section="TL",config = config)
 
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
                         "SSL":["batch_size","backbone","use_projection_header","backbone_out_dim",
                             "optimizer","loss_function","n_epochs"],
-                        "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"],
-                        "IO":["restart"]}
+                        "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"]
+                        }
         #--------------check information -------------------
         for section in compulsory:
             print(f"[{section}]")
@@ -152,12 +159,14 @@ class Config:
             "tau":"float", 
             "warmup_epochs":"int",
             "n_epochs":"int",
-            "save_every_n_epochs":"int"
+            "save_every_n_epochs":"int",
+            "restart_training":"boolean"
             }
         elif section == "LC":
             options_type = {
             "output_dim":"int",
             "use_batch_norm":"boolean",
+            "apply_simple_augmentaions":"boolean",
             "loss_function":"string",
             "optimizer":"string",
             "lr":"float",
@@ -167,16 +176,14 @@ class Config:
             "n_epochs":"int",
             "batch_size":"int",
             "training_mode":"string",
-            "save_every_n_epochs":"int"
-            }
-        elif section == "IO":
-            options_type = {
-            "restart":"boolean"
+            "save_every_n_epochs":"int",
+            "restart_training":"boolean"
             }
         elif section == "FT":
             # FT-finetune
             options_type = {
                 "loss_function":"string",
+                "apply_simple_augmentaions":"boolean",
                 "optimizer":"string",
                 "lr":"float",
                 "lr_scale":"string",
@@ -184,13 +191,15 @@ class Config:
                 "weight_decay":"float",
                 "n_epochs":"int",
                 "batch_size":"int",
-                "save_every_n_epochs":"int"
+                "save_every_n_epochs":"int",
+                "restart_training":"boolean"
             }
         elif section == "TL":
             # transfer learning(freeze the backbone)
             options_type = {
                 "output_dim":"int",
                 "use_batch_norm":"boolean",
+                "apply_simple_augmentaions":"boolean",
                 "loss_function":"string",
                 "optimizer":"string",
                 "lr":"float",
@@ -201,6 +210,7 @@ class Config:
                 "batch_size":"int",
                 "save_every_n_epochs":"int",
                 "dataset":"string",
+                "restart_training":"boolean"
             }
         return options_type
     

@@ -104,19 +104,8 @@ def get_cifar10_classes():
               "deer","dog","frog","horse","ship","truck"]
     return labels
 
-#####################################
-# For STL10 dataset
-#####################################   
-def get_stl10_classes():
-    labels = ["airplane","bird","car","cat",
-              "deer","dog","horse","monkey","ship","truck"]
-    return labels
-
 def download_dataset(dataset_path,dataset_name):
     if dataset_name == "CIFAR10":
-        '''
-        train_dataset contains 50000 images of size 32*32*3 
-        '''
         train_dataset = datasets.CIFAR10(root=dataset_path, train=True,download=True)
         test_dataset = datasets.CIFAR10(root=dataset_path, train=False,download=True)
         data_mean = (train_dataset.data / 255.0).mean(axis=(0,1,2))
@@ -170,6 +159,14 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         test_dataset = datasets.CIFAR10(root=data_dir, train=False,download=True)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+    elif info["dataset"] == "CIFAR100":
+        data_dir = "./datasets/cifar100"
+        mean = [0.5071, 0.4867, 0.4408]
+        std = [0.2675, 0.2565, 0.2761]
+        train_dataset = datasets.CIFAR100(root=data_dir, train=True,download=True)
+        test_dataset = datasets.CIFAR100(root=data_dir, train=False,download=True)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "FLOWERS102":
         train_dataset = datasets.Flowers102(root=data_dir,split="train",download=True)
         test_dataset = datasets.Flowers102(root=data_dir,split="test",download=True)
@@ -181,22 +178,24 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
     elif info["dataset"] == "PascalVOC":
         train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",download=True)
         test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",download=True)
-        val_dataset = datasets.VOCDetection(root=data_dir,image_set="val",download=True)
-
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "IMAGENET1K":
-        data_dir = "./datasets/imagenet1K"
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
-        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
+        train_dataset = datasets.ImageFolder(root=train_dir)
+        test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif info["dataset"] == "IMAGENET1K-1%":
-        data_dir = "./datasets/imagenet1K"
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
-        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
+        train_dataset = datasets.ImageFolder(root=train_dir)
+        test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
         # Desired number of images per class ~ 12.8
@@ -206,11 +205,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
     elif info["dataset"] == "IMAGENET1K-10%":
-        data_dir = "./datasets/imagenet1K"
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"train"))
-        test_dataset = datasets.ImageFolder(root=os.path.join(data_dir,"val"))
+        train_dataset = datasets.ImageFolder(root=train_dir)
+        test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
         # Desired number of images per class ~ 128
