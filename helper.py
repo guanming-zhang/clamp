@@ -166,7 +166,7 @@ class Config:
             options_type = {
             "output_dim":"int",
             "use_batch_norm":"boolean",
-            "apply_simple_augmentaions":"boolean",
+            "apply_simple_augmentations":"boolean",
             "loss_function":"string",
             "optimizer":"string",
             "lr":"float",
@@ -175,7 +175,6 @@ class Config:
             "weight_decay":"float",
             "n_epochs":"int",
             "batch_size":"int",
-            "training_mode":"string",
             "save_every_n_epochs":"int",
             "restart_training":"boolean"
             }
@@ -183,7 +182,7 @@ class Config:
             # FT-finetune
             options_type = {
                 "loss_function":"string",
-                "apply_simple_augmentaions":"boolean",
+                "apply_simple_augmentations":"boolean",
                 "optimizer":"string",
                 "lr":"float",
                 "lr_scale":"string",
@@ -199,7 +198,7 @@ class Config:
             options_type = {
                 "output_dim":"int",
                 "use_batch_norm":"boolean",
-                "apply_simple_augmentaions":"boolean",
+                "apply_simple_augmentations":"boolean",
                 "loss_function":"string",
                 "optimizer":"string",
                 "lr":"float",
@@ -215,6 +214,9 @@ class Config:
         return options_type
     
     def _set_options(self,section:str,config:configparser.ConfigParser):
+        if not section in config.sections():
+            print("[" + section + "]" + "does not exist in the config file")
+            return
         options = config.options(section)
         options_type = self._options_type(section)
         for opt in options:
