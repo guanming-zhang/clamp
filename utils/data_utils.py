@@ -224,11 +224,14 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-
-    trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True)]
-        
+    trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True),v2.Normalize(mean=mean,std=std)]
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
         trans_list.append(v2.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
+    # sanity check for image augmentaion
+    avaiable_augs = ["RandomResizedCrop","ColorJitter","RandomGrayscale","GaussianBlur","RandomHorizontalFlip","RandomSolarization"]
+    for aug in info["augmentations"]:
+        if not aug in avaiable_augs:
+            raise ValueError(aug + "is not avaible for augmention")  
     if "RandomResizedCrop" in info["augmentations"]:
         trans_list.append(v2.RandomResizedCrop(info["crop_size"],scale=(info["crop_min_scale"],info["crop_max_scale"])))
     if "ColorJitter" in info["augmentations"]:
@@ -245,12 +248,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         trans_list.append(v2.RandomHorizontalFlip(p=info["hflip_prob"]))
     if "RandomSolarize" in info["augmentations"]:
         trans_list.append(v2.RandomSolarize(threshold=0.5,p=info["solarize_prob"]))
-    #trans_list.append(transforms.ToTensor())
-    trans_list.append(v2.Normalize(mean=mean,std=std))
-    if standardized_to_imagenet:
-        trans_list.append(v2.Resize(size=(224,224),interpolation=v2.InterpolationMode.BICUBIC))
-    aug_transforms = v2.Compose(trans_list)
 
+    aug_transforms = v2.Compose(trans_list)
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
         test_transforms = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
                                       v2.Lambda(lambda x:x.repeat(3,1,1)),

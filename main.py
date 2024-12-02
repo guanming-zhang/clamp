@@ -38,7 +38,7 @@ if __name__ == '__main__':
     ssl_model = lightning_models.CLAP(backbone_name = config.SSL["backbone"],
                                   backbone_out_dim = config.SSL["backbone_out_dim"],
                                   prune = prune_backbone,
-                                  use_projection_header=config.SSL["use_projection_header"],
+                                  use_projection_head=config.SSL["use_projection_head"],
                                   proj_dim = config.SSL["proj_dim"],
                                   proj_out_dim = config.SSL["proj_out_dim"],
                                   optim_name = config.SSL["optimizer"],
@@ -108,7 +108,7 @@ if __name__ == '__main__':
                  momentum = config.LC["momentum"],
                  weight_decay = config.LC["weight_decay"],
                  n_epochs = config.LC["n_epochs"])
-    lc_model.set_backbone(ssl_model.backbone)
+    
     with helper.Timer("LC Training"):
         lc_model = lightning_models.train_lc(
                 linear_model = lc_model,
@@ -116,6 +116,7 @@ if __name__ == '__main__':
                 val_loader = lc_val_loader,
                 test_loader = lc_test_loader,
                 max_epochs = config.LC["n_epochs"],
+                every_n_epochs = config.LC["save_every_n_epochs"],
                 precision = config.INFO["precision"],
                 checkpoint_path = lc_dir,
                 strategy = config.INFO["strategy"],
