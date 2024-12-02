@@ -224,12 +224,9 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-    if standardized_to_imagenet:
-        trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True),
-                      v2.Resize(size=224,interpolation=v2.InterpolationMode.BICUBIC)]
-    else: 
-        trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True)]
-    
+
+    trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True)]
+        
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
         trans_list.append(v2.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
     if "RandomResizedCrop" in info["augmentations"]:
@@ -250,7 +247,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         trans_list.append(v2.RandomSolarize(threshold=0.5,p=info["solarize_prob"]))
     #trans_list.append(transforms.ToTensor())
     trans_list.append(v2.Normalize(mean=mean,std=std))
-   
+    if standardized_to_imagenet:
+        trans_list.append(v2.Resize(size=(224,224),interpolation=v2.InterpolationMode.BICUBIC))
     aug_transforms = v2.Compose(trans_list)
 
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
