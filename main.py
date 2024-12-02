@@ -15,13 +15,17 @@ if __name__ == '__main__':
     config = helper.Config(input_dir, default_config_file)
     if config.INFO["fix_random_seed"]:
         pl.seed_everything(137) # To be reproducable
+    ###################################################
+    # self-superivesed learning
+    ###################################################
     # dataset and dataloader
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
-    lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
-    ssl_train_loader,lc_train_loader,test_loader,val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,lc_batch_size,
-                                                                                        num_workers = config.INFO["cpus_per_gpu"])
-    
+    ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
+                                                                                num_workers = config.INFO["cpus_per_gpu"],validation=False,
+                                                                                standardized_to_imagenet=False)
+    del ssl_test_loader
+    del ssl_val_loader
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
         ssl_lr = config.SSL["lr"]*config.SSL["batch_size"]/256.0 # lr ~ 0.1
@@ -35,6 +39,7 @@ if __name__ == '__main__':
                                   backbone_out_dim = config.SSL["backbone_out_dim"],
                                   prune = prune_backbone,
                                   use_projection_header=config.SSL["use_projection_header"],
+                                  proj_dim = config.SSL["proj_dim"],
                                   proj_out_dim = config.SSL["proj_out_dim"],
                                   optim_name = config.SSL["optimizer"],
                                   lr = ssl_lr,
@@ -61,17 +66,40 @@ if __name__ == '__main__':
                                         strategy = config.INFO["strategy"],
                                         num_nodes = config.INFO["num_nodes"],
                                         gpus_per_node = config.INFO["gpus_per_node"], 
-                                        checkpoint_path=ssl_dir)
-    lc_dir = os.path.join(config.loc,"lc")
+                                        checkpoint_path=ssl_dir,
+                                        restart = config.LC["restart_training"])
+    ###################################################
+    # linear classification
+    ###################################################
+    lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
+    # need to specify the location of the data for imagenet
+    if config.LC["apply_simple_augmentations"]:
+        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizeCrop","RandomHorizontalFlip"],
+                 "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+    else:
+        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":[]}
+    # need to specify the location of the data for imagenet
+    if "IMAGENET1K" in config.DATA["dataset"]:
+        data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
+        data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
+
+    lc_train_loader,lc_test_loader,lc_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
+                                                                         standardized_to_imagenet=config.LC["standardize_to_imagenet"])
     # setup the linear classification
+    lc_dir = os.path.join(config.loc,"lc")
     if not os.path.isdir(lc_dir):
         os.makedirs(lc_dir)
-    ssl_model.backbone.remove_projection_header()
     if config.LC["lr_scale"] == "linear":
         lc_lr = config.LC["lr"]*config.LC["batch_size"]/256.0 # lr ~ 0.1
     elif config.LC["lr_scale"] == "sqrt":
         lc_lr = config.LC["lr"]*math.sqrt(config.LC["batch_size"]) # lr ~ 0.05
+    # load the backbone form the latest checkpoint
+    last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
+    ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+    ssl_model.backbone.remove_projection_head()
+
     lc_model = lightning_models.LinearClassification(
+                 backbone = ssl_model.backbone,
                  in_dim = config.SSL["backbone_out_dim"],
                  out_dim = config.LC["output_dim"],
                  use_batch_norm = config.LC["use_batch_norm"],
@@ -82,16 +110,121 @@ if __name__ == '__main__':
                  n_epochs = config.LC["n_epochs"])
     lc_model.set_backbone(ssl_model.backbone)
     with helper.Timer("LC Training"):
-        lc_model = lightning_models.train_lc(ssl_model = ssl_model, 
-                ssl_ckpt_path = ssl_dir,
+        lc_model = lightning_models.train_lc(
                 linear_model = lc_model,
                 train_loader = lc_train_loader,
-                val_loader = val_loader,
-                test_loader = test_loader,
+                val_loader = lc_val_loader,
+                test_loader = lc_test_loader,
                 max_epochs = config.LC["n_epochs"],
                 precision = config.INFO["precision"],
                 checkpoint_path = lc_dir,
                 strategy = config.INFO["strategy"],
                 num_nodes = config.INFO["num_nodes"],
                 gpus_per_node = config.INFO["gpus_per_node"], 
-                mode = config.LC["training_mode"])
+                restart = config.LC["restart_training"])
+    ###################################################
+    # Semi-supervised learning(if SemiSL section exists)
+    ###################################################
+    if len(config.SemiSL) > 0:
+        semisl_batch_size = config.SemiSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
+        for dataset in ["IMAGENET1K-1%","IMAGENET1K-10%"]:
+            if config.SemiSL["apply_simple_augmentations"]:
+                data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizeCrop","RandomHorizontalFlip"],
+                     "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+            else:
+                data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":[]}
+            # add the location for imagenet dataset
+            data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
+            data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
+            semisl_train_loader,semisl_test_loader,semisl_val_loader = data_utils.get_dataloader(data_info,semisl_batch_size,num_workers=config.INFO["cpus_per_gpu"],
+                                                                                 standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"])
+            semisl_dir = os.path.join(config.loc,"semisl-"+dataset)
+            if not os.path.isdir(semisl_dir):
+                os.makedirs(semisl_dir)
+            if config.SemiSL["lr_scale"] == "linear":
+                semisl_lr = config.SemiSL["lr"]*config.SemiSL["batch_size"]/256.0 # lr ~ 0.1
+            elif config.LC["lr_scale"] == "sqrt":
+                semisl_lr = config.SemiSL["lr"]*math.sqrt(config.SemiSL["batch_size"]) # lr ~ 0.05
+            # load the backbone from the checkpoint
+            last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
+            ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+            ssl_model.backbone.remove_projection_head()
+            # load the linear classifier from the checkpoint
+            lc_model = lightning_models.LinearClassification.load_from_checkpoint(os.path.join(lc_dir,"best_val.ckpt"),backbone = ssl_model.backbone)
+            semisl_model = lightning_models.FineTune(backbone = ssl_model.backbone,
+                    linear_net= lc_model.linear_net,
+                    optim_name = config.SemiSL["optimizer"],
+                    lr = semisl_lr, 
+                    momentum = config.SemiSL["momentum"],
+                    weight_decay = config.LC["weight_decay"],
+                    n_epochs = config.SemiSL["n_epochs"])
+            semisl_model = lightning_models.train_finetune(
+                    finetune_model = semisl_model,
+                    train_loader = semisl_test_loader,
+                    test_loader = semisl_test_loader,
+                    val_loader = semisl_val_loader,
+                    max_epochs = config.SemiSL["n_epochs"],
+                    every_n_epochs = config.SemiSL["save_every_n_epochs"],
+                    checkpoint_path = semisl_dir,
+                    precision = config.INFO["precision"],
+                    strategy = config.INFO["strategy"],
+                    num_nodes = config.INFO["num_nodes"],
+                    gpus_per_node = config.INFO["gpus_per_node"],
+                    restart = config.SemiSL["restart_training"])
+    
+    ##################################################
+    # Transfer learning(freeze the backbone)
+    ##################################################
+    # Transfer learning(freeze backbone)
+    if len(config.TL) > 0:
+        tl_output_dim = {"CIFAR100":100,
+                        "FOOD101":101,
+                        "FLOWERS102":102}
+        for dataset in ["CIFAR100","FOOD101","FLOWERS102"]:
+            tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
+            if config.LC["apply_simple_augmentations"]:
+                data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":2,"augmentations":["Resize","RandomHorizontalFlip"],
+                 "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5,"resize_to":224}
+            else:
+                data_info = {"dataset":config.INFO["dataset"],"batch_size":tl_batch_size,"n_views":1,"augmentations":["Resize"],"resize_to":224}
+                tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
+                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"])
+            tl_dir = os.path.join(config.loc,"tl-"+dataset)
+            if not os.path.isdir(tl_dir):
+                os.makedirs(tl_dir)
+
+            if config.TL["lr_scale"] == "linear":
+                tl_lr = config.TL["lr"]*config.TL["batch_size"]/256.0 # lr ~ 0.1
+            elif config.TL["lr_scale"] == "sqrt":
+                tl_lr = config.TL["lr"]*math.sqrt(config.TL["batch_size"]) # lr ~ 0.05
+
+            # load the backbone from the checkpoint
+            last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
+            ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+            ssl_model.backbone.remove_projection_head()
+        
+            tl_model = lightning_models.LinearClassification(
+                        backbone = ssl_model.backbone,
+                        in_dim = config.SSL["backbone_out_dim"],
+                        out_dim = tl_output_dim[dataset],
+                        use_batch_norm = config.TL["use_batch_norm"],
+                        optim_name = config.TL["optimizer"],
+                        lr = tl_lr, 
+                        momentum = config.TL["momentum"],
+                        weight_decay = config.TL["weight_decay"],
+                        n_epochs = config.TL["n_epochs"])
+
+            tl_model = lightning_models.train_lc(
+                        linear_model = tl_model,
+                        train_loader = tl_train_loader,
+                        val_loader = tl_val_loader,
+                        test_loader = tl_test_loader,
+                        every_n_epochs = config.TL["save_every_n_epochs"],
+                        max_epochs = config.TL["n_epochs"],
+                        checkpoint_path = tl_dir,
+                        precision = config.INFO["precision"],
+                        strategy = config.INFO["strategy"],
+                        num_nodes = config.INFO["num_nodes"],
+                        gpus_per_node = config.INFO["gpus_per_node"],
+                        restart = config.SemiSL["restart_training"])
+
