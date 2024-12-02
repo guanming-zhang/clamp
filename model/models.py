@@ -5,12 +5,12 @@ import torchvision
 
 class BackboneNet(torch.nn.Module):
     def __init__(self,resnet_type:str="resnet18",backbone_out_dim=2048,prune:bool=False,
-                 use_projection_header=False,proj_out_dim=-1):
+                 use_projection_head=False,proj_dim = -1, proj_out_dim=-1):
         super().__init__()
         self.model_name = "BackboneNet"
         # this is a sloppy way of recording hyperperameters
         self.hyper_parameters = {"resnet_type":resnet_type,
-                                "use_projection_header":use_projection_header,
+                                "use_projection_head":use_projection_head,
                                 "backbone_out_dim":backbone_out_dim,
                                 "proj_out_dim":proj_out_dim}
         if resnet_type == "resnet18":
@@ -22,23 +22,24 @@ class BackboneNet(torch.nn.Module):
         elif resnet_type == "resnet50":
             # the fc layer dim for resnet18 is 2048*num_classes
             self.net = torchvision.models.resnet50(num_classes = backbone_out_dim)
-        if use_projection_header:
+        if use_projection_head:
             if proj_out_dim < 0:
                 raise ValueError("proj_dim must be larger than 0")
-            self.projection_header = torch.nn.Sequential(
+            self.projection_head = torch.nn.Sequential(
+                        torch.nn.Linear(backbone_out_dim,proj_dim),
                         torch.nn.ReLU(),
-                        torch.nn.Linear(backbone_out_dim,proj_out_dim)
+                        torch.nn.Linear(proj_dim,proj_out_dim)
                     )
         else:
-            self.projection_header = torch.nn.Identity()
+            self.projection_head = torch.nn.Identity()
         # if the image is small, such as CIFAR10, MNIST, we need to prune the network
         if prune:
             self._remove_maxpool()
             self._replace_conv1()
 
     
-    def remove_projection_header(self):
-        self.projection_header = torch.nn.Identity()
+    def remove_projection_head(self):
+        self.projection_head = torch.nn.Identity()
     
     def _remove_maxpool(self):
         # remove the max pooling for CIFAR10 dataset
@@ -49,7 +50,7 @@ class BackboneNet(torch.nn.Module):
     
 
     def forward(self,x):
-        return self.projection_header(self.net(x))
+        return self.projection_head(self.net(x))
 
 class BnLinearNet(torch.nn.Module):#
     def __init__(self,in_dim,out_dim):

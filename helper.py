@@ -62,7 +62,7 @@ class Config:
         self.DATA = {}
         self.SSL = {} # self supervised learning
         self.LC = {}  # linear classification
-        self.FT = {}  # finetune(semi-supervised learning)
+        self.SemiSL = {}  # finetune(semi-supervised learning)
         self.TL = {}  # transfer learning(freeze backbone)
         
         #----------------set the default configuration first ----------
@@ -72,24 +72,24 @@ class Config:
             self._set_options(section="DATA",config = default_config)
             self._set_options(section="SSL",config = default_config)
             self._set_options(section="LC",config = default_config)
-            self._set_options(section="FT",config = default_config)
+            self._set_options(section="SemiSL",config = default_config)
             self._set_options(section="TL",config = default_config)
         #----------------set the configuration  ----------
         self._set_options(section="INFO",config = config)
         self._set_options(section="DATA",config = config)
         self._set_options(section="SSL",config = config)
         self._set_options(section="LC",config = config)
-        self._set_options(section="FT",config = config)
+        self._set_options(section="SemiSL",config = config)
         self._set_options(section="TL",config = config)
 
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
-                        "SSL":["batch_size","backbone","use_projection_header","backbone_out_dim",
+                        "SSL":["batch_size","backbone","use_projection_head","backbone_out_dim",
                             "optimizer","loss_function","n_epochs"],
                         "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"]
                         }
         #--------------check information -------------------
-        for section in compulsory:
+        for section in config.sections():
             print(f"[{section}]")
             for key, value in getattr(self,section).items():
                 print(f"{key} = {value}")
@@ -120,6 +120,8 @@ class Config:
         elif section == "DATA":
             options_type = {
             "dataset":"string",
+            "imagenet_train_dir":"string",
+            "imagenet_val_dir":"string",
             "augmentations":"string_list",
             "n_views":"int",
             "batch_size":"int",
@@ -135,13 +137,15 @@ class Config:
             "grayscale_prob":"float",
             "blur_kernel_size":"int",
             "blur_prob":"float",
-            "hflip_prob":"float"
+            "hflip_prob":"float",
+            "solarize_prob":"float"
             }
         elif section == "SSL":
             options_type = {
             "batch_size":"int",
             "backbone":"string",
-            "use_projection_header":"boolean",
+            "use_projection_head":"boolean",
+            "proj_dim":"int",
             "proj_out_dim":"int",
             "backbone_out_dim":"int",
             "optimizer":"string",
@@ -167,6 +171,7 @@ class Config:
             "output_dim":"int",
             "use_batch_norm":"boolean",
             "apply_simple_augmentations":"boolean",
+            "standardize_to_imagenet":"boolean",
             "loss_function":"string",
             "optimizer":"string",
             "lr":"float",
@@ -178,11 +183,12 @@ class Config:
             "save_every_n_epochs":"int",
             "restart_training":"boolean"
             }
-        elif section == "FT":
-            # FT-finetune
+        elif section == "SemiSL":
+            # Semi-superivsed learning
             options_type = {
                 "loss_function":"string",
                 "apply_simple_augmentations":"boolean",
+                "standardize_to_imagenet":"boolean",
                 "optimizer":"string",
                 "lr":"float",
                 "lr_scale":"string",
@@ -196,9 +202,9 @@ class Config:
         elif section == "TL":
             # transfer learning(freeze the backbone)
             options_type = {
-                "output_dim":"int",
                 "use_batch_norm":"boolean",
                 "apply_simple_augmentations":"boolean",
+                "standardize_to_imagenet":"boolean",
                 "loss_function":"string",
                 "optimizer":"string",
                 "lr":"float",

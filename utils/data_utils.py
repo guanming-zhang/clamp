@@ -4,9 +4,10 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import random_split,Dataset
 from torchvision import datasets
-from torchvision import transforms
+from torchvision.transforms import v2
 import os
 import time
+
 
 def show_images(imgs,nrow,ncol,titles = None):
     '''
@@ -115,7 +116,7 @@ def download_dataset(dataset_path,dataset_name):
         raise NotImplementedError("downloading for this dataset is not implemented")
 
 
-def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True):
+def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,standardized_to_imagenet:bool=False):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -168,14 +169,18 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "FLOWERS102":
+        data_dir = "./datasets/flower102"
         train_dataset = datasets.Flowers102(root=data_dir,split="train",download=True)
         test_dataset = datasets.Flowers102(root=data_dir,split="test",download=True)
         val_dataset = datasets.Flowers102(root=data_dir,split="val",download=True)
     elif info["dataset"] == "FOOD101":
+        data_dir = "./datasets/food101"
         train_dataset = datasets.Food101(root=data_dir,split="train",download=True)
         test_dataset = datasets.Food101(root=data_dir,split="test",download=True)
-        val_dataset = datasets.Food101(root=data_dir,split="val",download=True)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
     elif info["dataset"] == "PascalVOC":
+        data_dir = "./datasets/pascalvoc"
         train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",download=True)
         test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",download=True)
         if validation:
@@ -219,41 +224,51 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-   
-    trans_list = [transforms.ToTensor()]
+    if standardized_to_imagenet:
+        trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True),
+                      v2.Resize(size=224,interpolation=v2.InterpolationMode.BICUBIC)]
+    else: 
+        trans_list = [v2.ToImage(), v2.ToDtype(torch.float32,scale=True)]
     
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
-        trans_list.append(transforms.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
-    
+        trans_list.append(v2.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
     if "RandomResizedCrop" in info["augmentations"]:
-        trans_list.append(transforms.RandomResizedCrop(info["crop_size"],scale=(info["crop_min_scale"],info["crop_max_scale"])))
+        trans_list.append(v2.RandomResizedCrop(info["crop_size"],scale=(info["crop_min_scale"],info["crop_max_scale"])))
     if "ColorJitter" in info["augmentations"]:
-        trans_list.append(transforms.RandomApply([transforms.ColorJitter(
+        trans_list.append(v2.RandomApply([v2.ColorJitter(
                                                     brightness=info["jitter_brightness"],
                                                     contrast=info["jitter_contrast"],
                                                     saturation=info["jitter_saturation"],
                                                     hue=info["jitter_hue"])],p=info["jitter_prob"]))
     if "RandomGrayscale" in info["augmentations"]:
-        trans_list.append(transforms.RandomGrayscale(p=info["grayscale_prob"]))
+        trans_list.append(v2.RandomGrayscale(p=info["grayscale_prob"]))
     if "GaussianBlur" in info["augmentations"]:
-        trans_list.append(transforms.RandomApply([transforms.GaussianBlur(kernel_size=info["blur_kernel_size"])],p=info["blur_prob"]))
+        trans_list.append(v2.RandomApply([v2.GaussianBlur(kernel_size=info["blur_kernel_size"])],p=info["blur_prob"]))
     if "RandomHorizontalFlip" in info["augmentations"]:
-        trans_list.append(transforms.RandomHorizontalFlip(p=info["hflip_prob"]))
+        trans_list.append(v2.RandomHorizontalFlip(p=info["hflip_prob"]))
+    if "RandomSolarize" in info["augmentations"]:
+        trans_list.append(v2.RandomSolarize(threshold=0.5,p=info["solarize_prob"]))
     #trans_list.append(transforms.ToTensor())
-    trans_list.append(transforms.Normalize(mean=mean,std=std))
+    trans_list.append(v2.Normalize(mean=mean,std=std))
    
-    aug_transforms = transforms.Compose(trans_list)
+    aug_transforms = v2.Compose(trans_list)
+
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
-        norm_transforms = transforms.Compose([transforms.ToTensor(),
-                            transforms.Lambda(lambda x:x.repeat(3,1,1)),
-                            transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))])
+        test_transforms = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+                                      v2.Lambda(lambda x:x.repeat(3,1,1)),
+                                      v2.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))])
+    elif standardized_to_imagenet:
+        test_transforms = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+                                v2.Normalize(mean=mean,std=std),
+                                v2.Resize(size=256,interpolation=v2.InterpolationMode.BICUBIC),
+                                v2.CenterCrop(size=224)])
     else:
-        norm_transforms = transforms.Compose([transforms.ToTensor(),
-                                     transforms.Normalize(mean=mean,std=std)])
+        test_transforms = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+                                     v2.Normalize(mean=mean,std=std)])
     train_dataset = WrappedDataset(train_dataset,aug_transforms,n_views = info["n_views"])
-    test_dataset = WrappedDataset(test_dataset,norm_transforms)
+    test_dataset = WrappedDataset(test_dataset,test_transforms)
     if validation:
-        val_dataset = WrappedDataset(val_dataset,norm_transforms)
+        val_dataset = WrappedDataset(val_dataset,test_transforms)
 
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
