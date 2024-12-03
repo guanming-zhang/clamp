@@ -183,13 +183,11 @@ if __name__ == '__main__':
                         "FLOWERS102":102}
         for dataset in ["CIFAR100","FOOD101","FLOWERS102"]:
             tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
-            if config.LC["apply_simple_augmentations"]:
-                data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":2,"augmentations":["Resize","RandomHorizontalFlip"],
+            # must apply random cropping to normalize the image size to [224,224]
+            data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":1,"augmentations":["Resize","RandomHorizontalFlip"],
                  "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5,"resize_to":224}
-            else:
-                data_info = {"dataset":config.INFO["dataset"],"batch_size":tl_batch_size,"n_views":1,"augmentations":["Resize"],"resize_to":224}
-                tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
-                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"])
+            tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
+                                                                                standardized_to_imagenet=config.TL["standardize_to_imagenet"])
             tl_dir = os.path.join(config.loc,"tl-"+dataset)
             if not os.path.isdir(tl_dir):
                 os.makedirs(tl_dir)

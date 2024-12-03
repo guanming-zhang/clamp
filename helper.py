@@ -203,7 +203,6 @@ class Config:
             # transfer learning(freeze the backbone)
             options_type = {
                 "use_batch_norm":"boolean",
-                "apply_simple_augmentations":"boolean",
                 "standardize_to_imagenet":"boolean",
                 "loss_function":"string",
                 "optimizer":"string",

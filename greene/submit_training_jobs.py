@@ -151,8 +151,6 @@ class JobManager:
                 base_batch_dict["ARG1"] = folder_path
                 if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
                     continue
-                if os.path.isdir(os.path.join(folder_path,"lc")):
-                    shutil.rmtree(os.path.join(folder_path,"lc"))
                 self.create_sbatch_file(base_batch_dict)
                 self.submit_sbatch()       
         
