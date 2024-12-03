@@ -228,10 +228,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
         trans_list.append(v2.Lambda(lambda x:x.repeat(3,1,1)))# 3 channels
     # sanity check for image augmentaion
-    avaiable_augs = ["RandomResizedCrop","ColorJitter","RandomGrayscale","GaussianBlur","RandomHorizontalFlip","RandomSolarization"]
+    avaiable_augs = ["RandomResizedCrop","ColorJitter","RandomGrayscale","GaussianBlur","RandomHorizontalFlip","RandomSolarize"]
     for aug in info["augmentations"]:
         if not aug in avaiable_augs:
-            raise ValueError(aug + "is not avaible for augmention")  
+            raise ValueError(aug + " is not avaible for augmention")  
     if "RandomResizedCrop" in info["augmentations"]:
         trans_list.append(v2.RandomResizedCrop(info["crop_size"],scale=(info["crop_min_scale"],info["crop_max_scale"])))
     if "ColorJitter" in info["augmentations"]:
