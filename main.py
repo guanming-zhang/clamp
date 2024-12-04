@@ -9,17 +9,21 @@ import os
 from model import lightning_models
 import math
 import pytorch_lightning as pl
-import datetime 
 if __name__ == '__main__':
     input_dir= sys.argv[1]
     default_config_file = sys.argv[2]
     config = helper.Config(input_dir, default_config_file)
     if config.INFO["fix_random_seed"]:
         pl.seed_everything(137) # To be reproducable
-    # save the starting time
-    current_datetime = datetime.datetime.now()
-    with open(os.path.join(input_dir,"starting-time.txt"),"w") as f:
-        f.write(current_datetime.strftime("%Y-%m-%d %H:%M:%S"))
+    # save the starting time as the last line of file staring-time.txt
+    current_datetime,zone = helper.get_est_time_now()
+    if os.path.isfile(os.path.join(input_dir,"starting-time.txt")):
+        with open(os.path.join(input_dir,"starting-time.txt"),"a") as f:
+            f.write("\n")
+            f.write(current_datetime.strftime("%Y-%m-%d %H:%M:%S"))
+    else:
+        with open(os.path.join(input_dir,"starting-time.txt"),"a") as f:
+            f.write(current_datetime.strftime("%Y-%m-%d %H:%M:%S"))
 
     ###################################################
     # self-superivesed learning

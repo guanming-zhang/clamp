@@ -6,6 +6,7 @@ from copy import deepcopy
 import subprocess
 import time
 import shutil
+import datetime
 
 class JobManager:
     def __init__(self,default_config_path:str):
@@ -134,13 +135,28 @@ class JobManager:
                 self.create_sbatch_file(base_batch_dict)
                 self.submit_sbatch()
                 count += 1
-    def continue_prev_submit(self,base_dir:str,batch_dict:dict):
+    def hours_from_starting(self,dir_path):
+        def get_est_time_now():
+            est_offset = datetime.timedelta(hours=-5)
+            est = datetime.timezone(est_offset,name="EST")
+            utc_time = datetime.datetime.now(datetime.timezone.utc)
+            est_time = utc_time.astimezone(est)
+            return est_time,est_time
+        with open(os.path.join(dir_path,"starting-time.txt"),'r') as f :
+            lines = [line for line in f]
+            starting_time = datetime.strptime(lines[-1],"%Y-%m-%d %H:%M:%S")
+            time_now,est = get_est_time_now()
+        return (time_now - starting_time.astimezone(est)).total_seconds()/3600.0
+    
+    def continue_prev_submit(self,base_dir:str,batch_dict:dict,hours_before:float=1.0):
         folder_list = os.listdir(base_dir)
         for folder in folder_list:
             folder_path = os.path.join(base_dir,folder)
             if not "run" in folder:
                 continue
-            if os.path.isdir(os.path.join(folder_path,"ssl")):
+            if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
+                continue
+            if os.path.isfile(os.path.join(folder_path,"starting-time.txt")) and self.hours_from_starting(folder_path) < hours_before:
                 continue
             config = configparser.ConfigParser()
             config.read(os.path.join(folder_path,"config.ini"))
@@ -151,8 +167,7 @@ class JobManager:
             base_batch_dict = copy.deepcopy(self.batch_dict)
             base_batch_dict.update(batch_dict)
             base_batch_dict["ARG1"] = folder_path
-            if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
-                continue
+
             self.create_sbatch_file(base_batch_dict)
             self.submit_sbatch()       
         

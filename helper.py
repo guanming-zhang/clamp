@@ -12,10 +12,18 @@ import configparser
 import time
 import json
 from torch.utils.data.distributed import DistributedSampler
-
+import datetime
 #import pathlib
 #path = pathlib.Path(__file__).parents[1]/"model"
 #sys.path.append(str(path))
+
+def get_est_time_now():
+    est_offset = datetime.timedelta(hours=-5)
+    est = datetime.timezone(est_offset,name="EST")
+    utc_time = datetime.datetime.now(datetime.timezone.utc)
+    est_time = utc_time.astimezone(est)
+    return est_time,est
+
 def set_random_seed(s:int=137):
     torch.manual_seed(s) 
     if torch.cuda.is_available():

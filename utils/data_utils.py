@@ -267,10 +267,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
     if validation:
         val_dataset = WrappedDataset(val_dataset,test_transforms)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,num_workers=num_workers,pin_memory=False)
+    test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=False)
     if validation:
-        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=True)
+        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,num_workers = num_workers,pin_memory=False)
     else:
         val_loader = None
     return train_loader,test_loader,val_loader
