@@ -22,7 +22,7 @@ class JobManager:
                            "MEM_PER_NODE":"6GB",
                            "PYTHON_EXE":"main.py",
                            "ARG1":"[input_dir_path]",
-                           "ARG2":"./default_config_cifar10.ini"}
+                           "ARG2":default_config_path}
         self.default_comp_res = True
     def print_config(self,config:configparser.ConfigParser):
         for section in config.sections():
@@ -134,36 +134,59 @@ class JobManager:
                 self.create_sbatch_file(base_batch_dict)
                 self.submit_sbatch()
                 count += 1
-        def continue_prev_submit(self,base_dir:str,batch_dict:dict):
-            folder_list = os.listdir(base_dir)
-            for folder in folder_list:
-                folder_path = os.path.join(base_dir,folder)
-                if not "run" in folder:
-                    continue
-                config = configparser.ConfigParser()
-                config.read(os.path.join(folder_path,"config.ini"))
-                num_nodes = config["INFO"].getint("num_nodes")
-                gpus_per_node = config["INFO"].getint("gpus_per_node")
-                cpus_per_gpu = config["INFO"].getint("cpus_per_node")
-                self.set_computation_resource(num_nodes,gpus_per_node,cpus_per_gpu,gres="gpu")
-                base_batch_dict = copy.deepcopy(self.batch_dict)
-                base_batch_dict.update(batch_dict)
-                base_batch_dict["ARG1"] = folder_path
-                if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
-                    continue
-                self.create_sbatch_file(base_batch_dict)
-                self.submit_sbatch()       
+    def continue_prev_submit(self,base_dir:str,batch_dict:dict):
+        folder_list = os.listdir(base_dir)
+        for folder in folder_list:
+            folder_path = os.path.join(base_dir,folder)
+            if not "run" in folder:
+                continue
+            if os.path.isdir(os.path.join(folder_path,"ssl")):
+                continue
+            config = configparser.ConfigParser()
+            config.read(os.path.join(folder_path,"config.ini"))
+            num_nodes = config["INFO"].getint("num_nodes")
+            gpus_per_node = config["INFO"].getint("gpus_per_node")
+            cpus_per_gpu = config["INFO"].getint("cpus_per_gpu")
+            self.set_computation_resource(num_nodes,gpus_per_node,cpus_per_gpu,gres="gpu")
+            base_batch_dict = copy.deepcopy(self.batch_dict)
+            base_batch_dict.update(batch_dict)
+            base_batch_dict["ARG1"] = folder_path
+            if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
+                continue
+            self.create_sbatch_file(base_batch_dict)
+            self.submit_sbatch()       
         
         
         
 if __name__ == "__main__":
+    ########################################
+    # cifar10
+    ########################################
     # for resnet+batch size=256+cifat10, need around 3GB mem per GPU, 3GB*gpus_per_node per node
     # around 5 minutes per epoch
     # if batch size is too small or num_cpus is too low then GPU utility will be low
-    jm = JobManager("./default_config_cifar10.ini")
-    options = {"SSL":{"lr":[0.1],"batch_size":[128],"lw0":[0.1,10.0],"lw2":[0.1]},
-               "LC":{"lr":[0.2],}}
+    jm = JobManager("./default_configs/default_config_cifar10.ini")
+    options = {"DATA":{"n_views":[8,12,16]},
+               "SSL":{"lr":[0.1,0.2],"batch_size":[256],"lw0":[0.5,1.0,1.5],"lw2":[0.5,1.0,1.5]},
+               "LC":{"lr":[0.2]}}
     # cpus_per_taks is equivalent to cpus_per_gpu in our setting
     jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
-    jm.submit("./simulations/grid_search_test2",options,{"TIME":"06:30:00","MEM_PER_NODE":"6GB"})
+    #jm.submit("./simulations/cifar10/resnet18/linear/grid_search1",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
+    jm.continue_prev_submit("./simulations/cifar10/resnet18/linear/grid_search1",{"TIME":"30:55:00","MEM_PER_NODE":"6GB"})
+
+    '''
+    ########################################
+    # imagenet1k
+    ########################################
+    # for resnet+batch size=256+cifat10, need around 3GB mem per GPU, 3GB*gpus_per_node per node
+    # around 5 minutes per epoch
+    # if batch size is too small or num_cpus is too low then GPU utility will be low
+    jm = JobManager("./default_configs/default_config_imagenet1k.ini")
+    options = {"DATA":{"n_views":[8]},
+               "SSL":{"lr":[0.1,0.2],"batch_size":[64],"n_epochs":[2],"warmup_epochs":[1],"save_every_n_epochs":[1]},
+               "LC":{"lr":[0.2]}}
+    # cpus_per_taks is equivalent to cpus_per_gpu in our setting
+    jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
+    jm.submit("./simulations/imagenet/linear/test1",options,{"TIME":"12:30:00","MEM_PER_NODE":"16GB"})
+    '''
     

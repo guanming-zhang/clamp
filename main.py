@@ -9,12 +9,18 @@ import os
 from model import lightning_models
 import math
 import pytorch_lightning as pl
+import datetime 
 if __name__ == '__main__':
     input_dir= sys.argv[1]
     default_config_file = sys.argv[2]
     config = helper.Config(input_dir, default_config_file)
     if config.INFO["fix_random_seed"]:
         pl.seed_everything(137) # To be reproducable
+    # save the starting time
+    current_datetime = datetime.datetime.now()
+    with open(os.path.join(input_dir,"starting-time.txt"),"w") as f:
+        f.write(current_datetime.strftime("%Y-%m-%d %H:%M:%S"))
+
     ###################################################
     # self-superivesed learning
     ###################################################
@@ -74,7 +80,7 @@ if __name__ == '__main__':
     lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     # need to specify the location of the data for imagenet
     if config.LC["apply_simple_augmentations"]:
-        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizeCrop","RandomHorizontalFlip"],
+        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
                  "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
     else:
         data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":[]}
@@ -130,7 +136,7 @@ if __name__ == '__main__':
         semisl_batch_size = config.SemiSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
         for dataset in ["IMAGENET1K-1%","IMAGENET1K-10%"]:
             if config.SemiSL["apply_simple_augmentations"]:
-                data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizeCrop","RandomHorizontalFlip"],
+                data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
                      "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
             else:
                 data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":[]}
@@ -184,8 +190,8 @@ if __name__ == '__main__':
         for dataset in ["CIFAR100","FOOD101","FLOWERS102"]:
             tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
             # must apply random cropping to normalize the image size to [224,224]
-            data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":1,"augmentations":["Resize","RandomHorizontalFlip"],
-                 "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5,"resize_to":224}
+            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+                     "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
             tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"])
             tl_dir = os.path.join(config.loc,"tl-"+dataset)
