@@ -66,7 +66,7 @@ if __name__ == '__main__':
                                   rs = config.SSL["rs"])
     ssl_dir = os.path.join(config.loc,"ssl")
     if not os.path.isdir(ssl_dir):
-        os.makedirs(ssl_dir)
+        os.makedirs(ssl_dir,exist_ok=True)
     with helper.Timer("SSL Training"):
         ssl_model = lightning_models.train_clap(model=ssl_model, 
                                         train_loader = ssl_train_loader,
@@ -98,7 +98,7 @@ if __name__ == '__main__':
     # setup the linear classification
     lc_dir = os.path.join(config.loc,"lc")
     if not os.path.isdir(lc_dir):
-        os.makedirs(lc_dir)
+        os.makedirs(lc_dir,exist_ok=True)
     if config.LC["lr_scale"] == "linear":
         lc_lr = config.LC["lr"]*config.LC["batch_size"]/256.0 # lr ~ 0.1
     elif config.LC["lr_scale"] == "sqrt":
@@ -151,7 +151,7 @@ if __name__ == '__main__':
                                                                                  standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"])
             semisl_dir = os.path.join(config.loc,"semisl-"+dataset)
             if not os.path.isdir(semisl_dir):
-                os.makedirs(semisl_dir)
+                os.makedirs(semisl_dir,exist_ok=True)
             if config.SemiSL["lr_scale"] == "linear":
                 semisl_lr = config.SemiSL["lr"]*config.SemiSL["batch_size"]/256.0 # lr ~ 0.1
             elif config.LC["lr_scale"] == "sqrt":
@@ -200,7 +200,7 @@ if __name__ == '__main__':
                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"])
             tl_dir = os.path.join(config.loc,"tl-"+dataset)
             if not os.path.isdir(tl_dir):
-                os.makedirs(tl_dir)
+                os.makedirs(tl_dir,exist_ok=True)
 
             if config.TL["lr_scale"] == "linear":
                 tl_lr = config.TL["lr"]*config.TL["batch_size"]/256.0 # lr ~ 0.1

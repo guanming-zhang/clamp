@@ -152,11 +152,16 @@ class JobManager:
         folder_list = os.listdir(base_dir)
         for folder in folder_list:
             folder_path = os.path.join(base_dir,folder)
+            flag = True
             if not "run" in folder:
-                continue
+                flag = False
             if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
-                continue
+                flag = False
             if os.path.isfile(os.path.join(folder_path,"starting-time.txt")) and self.hours_from_starting(folder_path) < hours_before:
+                flag = False
+            if not os.path.isdir(os.path.join(folder_path,"ssl")):
+                flag = True
+            if not flag:
                 continue
             config = configparser.ConfigParser()
             config.read(os.path.join(folder_path,"config.ini"))
