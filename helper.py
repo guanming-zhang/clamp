@@ -166,6 +166,7 @@ class Config:
             "lw0":"float",
             "lw1":"float",
             "lw2":"float",
+            "pot_pow":"float",
             "rs":"float",
             # tau is for info nce loss
             "tau":"float", 

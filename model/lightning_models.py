@@ -78,10 +78,10 @@ class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
                  optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,backbone_out_dim,prune,use_projection_head,proj_dim,proj_out_dim)
-        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,margin)
+        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         # all the hyperparameters are added as attributes to this class
@@ -91,7 +91,8 @@ class CLAP(pl.LightningModule):
             optimizer = optim.SGD(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=self.hparams.weight_decay)
+                                  weight_decay=self.hparams.weight_decay,
+                                  nesterov=True)
         elif self.hparams.optim_name == "AdamW":
             optimizer = optim.AdamW(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
@@ -129,8 +130,30 @@ class CLAP(pl.LightningModule):
         self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
+    
+    def validation_step(self, batch, batch_idx):
+        imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        preds = self.backbone(imgs)
+        # the shape of preds before reshaping [V*B,O]
+        preds = torch.reshape(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
+        # the shape of centers in [B,O]
+        centers = torch.mean(preds,dim=0,keepdim=True)
+        # the shape of diff : (V,B,B,O)
+        diff = preds[:,:,None,:] - centers[None,None,:,:]
+        # distance matrix (V,B,B)
+        dist_matrix = torch.sum(diff**2,dim=-1)
+        # nearest (V,B), nearest[1,2] = 4 
+        # nearest[1,2] = 4 means the the nearest cluster to
+        # the 1th view of in cluster 2 is cluster 4 
+        nearest = torch.argmin(dist_matrix,dim=-1)
+        correct = nearest == torch.arange(self.hparams.batch_size,device=nearest.device).repeat(self.hparams.n_views,1)
+        acc = (correct.sum()/(self.hparams.n_views*self.hparams.batch_size)).float()
+        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
+        return acc
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
+            val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
             num_nodes:int=1,
@@ -149,7 +172,11 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                          precision=precision,
                          strategy=strategy,
                          max_epochs=max_epochs,
-                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                                                mode = "max",
+                                                                dirpath=os.path.join(checkpoint_path),
+                                                                filename = 'best_val'),
+                                    pl.callbacks.ModelCheckpoint(save_weights_only=True,
                                                                   save_top_k = -1,
                                                                   save_last = False,
                                                                   every_n_epochs = every_n_epochs,
@@ -158,23 +185,20 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                     pl.callbacks.LearningRateMonitor('epoch')])
     
     trainer.logger._default_hp_metric = False 
-    # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(checkpoint_path, 'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(pretrained_filename) and (not restart):
-        print(f'Found pretrained model at {pretrained_filename}, loading...')
-        model = CLAP.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+    # Check whether pretrained model exists and finished. If yes, load it and skip training
+    trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
+    last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+        print(f'Found pretrained model at {trained_filename}, loading...')
+        model = CLAP.load_from_checkpoint(trained_filename)
+        return model
     else:
-        if prof_mem:
-            start_record_memory_history()
         # continue training
         ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
         if ckpt_files and (not restart):
             model = CLAP.load_from_checkpoint(ckpt_files[0]) # Load best checkpoint after training
-        trainer.fit(model, train_loader)
-        model = CLAP.load_from_checkpoint(pretrained_filename) # Load best checkpoint after training
-        if prof_mem:
-            export_memory_snapshot(os.path.join(checkpoint_path),"profile_memory.pickle")
-            stop_record_memory_history()
+        trainer.fit(model, train_loader,val_loader)
+        model = CLAP.load_from_checkpoint(trained_filename) # Load best checkpoint after training
     return model
 
 #########################################################
@@ -232,7 +256,7 @@ class LinearClassification(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.log('val_acc', acc, prog_bar=True)
+        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -285,7 +309,8 @@ class LinearClassification(pl.LightningModule):
             optimizer = optim.SGD(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=self.hparams.weight_decay)
+                                  weight_decay=self.hparams.weight_decay,
+                                  nesterov=True)
         elif self.hparams.optim_name == "AdamW":
             optimizer = optim.AdamW(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
@@ -338,10 +363,10 @@ def train_lc(linear_model:pl.LightningModule,
             strategy:str = "auto",
             precision:str="16-true",
             restart:bool = False):
-    # Check whether pretrained model exists. If yes, load it and skip training
+    # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
-    ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if os.path.isfile(trained_filename) and ckpt_files and (not restart):
+    last_ckpt = os.path.join(checkpoint_path,'lc-epoch={:d}.ckpt'.format(max_epochs-1))
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
         print(f'Found pretrained model at {trained_filename}, loading...')
         model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Automatically loads the model with the saved hyperparameters
         return model
@@ -369,9 +394,9 @@ def train_lc(linear_model:pl.LightningModule,
                                     pl.callbacks.LearningRateMonitor('epoch')])
     trainer.logger._default_hp_metric = False 
     # continue training
+    ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
     if ckpt_files and (not restart):
         linear_model =  LinearClassification.load_from_checkpoint(ckpt_files[0])
-    print("start fitting")
     trainer.fit(linear_model, train_loader,val_loader)
     test_output = trainer.test(linear_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
@@ -436,7 +461,7 @@ class FineTune(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.log('val_acc', acc, prog_bar=True)
+        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -491,7 +516,8 @@ class FineTune(pl.LightningModule):
             optimizer = optim.SGD(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=self.hparams.weight_decay)
+                                  weight_decay=self.hparams.weight_decay,
+                                  nesterov=True)
         elif self.hparams.optim_name == "AdamW":
             optimizer = optim.AdamW(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
                                   lr=self.hparams.lr,
@@ -517,8 +543,8 @@ def train_finetune(
             restart:bool=False):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
-    ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if os.path.isfile(trained_filename) and ckpt_files and (not restart):
+    last_ckpt = os.path.join(checkpoint_path,'ft-epoch={:d}.ckpt'.format(max_epochs-1))
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
         print(f'Found pretrained model at {trained_filename}, loading...')
         # Automatically loads the model with the saved hyperparameters
         # backbone and linear_net are ignored when saving the hyperparameters
@@ -552,6 +578,7 @@ def train_finetune(
                                     pl.callbacks.LearningRateMonitor('epoch')])
     trainer.logger._default_hp_metric = False   
     # continue training
+    ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
     if ckpt_files and (not restart):
         finetune_model =  FineTune.load_from_checkpoint(ckpt_files[0],backbone = finetune_model.backbone,linear_net = finetune_model.linear_net)
     trainer.fit(finetune_model, train_loader,val_loader)

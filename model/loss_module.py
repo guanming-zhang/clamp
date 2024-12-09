@@ -26,11 +26,12 @@ class InfoNCELoss:
 
 class EllipsoidPackingLoss:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,lw2:float=1.0,
-                 n_pow_iter:int=20,rs:float=2.0,margin:float=1e-7,record:bool = False):
+                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7,record:bool = False):
         self.n_views = n_views
         self.batch_size = batch_size
         self.n_pow_iter = n_pow_iter # for power iteration
         self.rs = rs # scale of radii
+        self.pot_pow = pot_pow # power for the repulsive potential
         self.lw0 = lw0 # loss weight for the ellipsoid size
         self.lw1 = lw1 # loss weight for the repulsion
         self.lw2 = lw2 # loss weight for the alignment
@@ -75,7 +76,7 @@ class EllipsoidPackingLoss:
         # loss 0: minimize the size of each ellipsoids
         # the loss is normalized to make it dimensionless 
         #    to make sure radii =0 and dij = inf is not a valid state 
-        ll = self.lw0*torch.sum(radii)/self.batch_size
+        ll = self.lw0*torch.sum(radii)
         # loss 1: repulsive loss
         diff = centers[:, None, :] - centers[None, :, :]
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
@@ -85,10 +86,10 @@ class EllipsoidPackingLoss:
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
         self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
-        ll += 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**2).sum()*self.lw1/nbr_mask.float().sum()
+        ll += 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         # loss 2: alignment loss (1 - cosine-similarity)
         sim = torch.matmul(eigens,eigens.transpose(0,1))**2
-        ll += 0.5*(1.0 - torch.square(sim[mask])).sum()*self.lw2/nbr_mask.float().sum()
+        ll += 0.5*(1.0 - torch.square(sim[mask])).sum()*self.lw2
         if self.record:
             self.status["corrs"] = corr.cpu().detach()
             self.status["centers"] = centers.cpu().detach()

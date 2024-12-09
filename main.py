@@ -32,10 +32,10 @@ if __name__ == '__main__':
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
-                                                                                num_workers = config.INFO["cpus_per_gpu"],validation=False,
+                                                                                num_workers = config.INFO["cpus_per_gpu"],validation=True,
+                                                                                augment_val_set=True,
                                                                                 standardized_to_imagenet=False)
     del ssl_test_loader
-    del ssl_val_loader
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
         ssl_lr = config.SSL["lr"]*config.SSL["batch_size"]/256.0 # lr ~ 0.1
@@ -63,6 +63,7 @@ if __name__ == '__main__':
                                   lw0 = config.SSL["lw0"],
                                   lw1 = config.SSL["lw1"],
                                   lw2 = config.SSL["lw2"],
+                                  pot_pow = config.SSL["pot_pow"],
                                   rs = config.SSL["rs"])
     ssl_dir = os.path.join(config.loc,"ssl")
     if not os.path.isdir(ssl_dir):
@@ -70,6 +71,7 @@ if __name__ == '__main__':
     with helper.Timer("SSL Training"):
         ssl_model = lightning_models.train_clap(model=ssl_model, 
                                         train_loader = ssl_train_loader,
+                                        val_loader = ssl_val_loader,
                                         max_epochs=config.SSL["n_epochs"],
                                         every_n_epochs = config.SSL["save_every_n_epochs"],
                                         precision = config.INFO["precision"],
@@ -120,6 +122,10 @@ if __name__ == '__main__':
                  n_epochs = config.LC["n_epochs"])
     
     with helper.Timer("LC Training"):
+        if config.INFO["strategy"] == "ddp":
+            strategy = "ddp_find_unused_parameters_true"
+        else:
+            strategy = config.INFO["strategy"]
         lc_model = lightning_models.train_lc(
                 linear_model = lc_model,
                 train_loader = lc_train_loader,
@@ -129,7 +135,7 @@ if __name__ == '__main__':
                 every_n_epochs = config.LC["save_every_n_epochs"],
                 precision = config.INFO["precision"],
                 checkpoint_path = lc_dir,
-                strategy = config.INFO["strategy"],
+                strategy = strategy,
                 num_nodes = config.INFO["num_nodes"],
                 gpus_per_node = config.INFO["gpus_per_node"], 
                 restart = config.LC["restart_training"])
@@ -138,6 +144,10 @@ if __name__ == '__main__':
     ###################################################
     if len(config.SemiSL) > 0:
         semisl_batch_size = config.SemiSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
+        if config.INFO["strategy"] == "ddp":
+            strategy = "ddp_find_unused_parameters_true"
+        else:
+            strategy = config.INFO["strategy"]
         for dataset in ["IMAGENET1K-1%","IMAGENET1K-10%"]:
             if config.SemiSL["apply_simple_augmentations"]:
                 data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
@@ -178,7 +188,7 @@ if __name__ == '__main__':
                     every_n_epochs = config.SemiSL["save_every_n_epochs"],
                     checkpoint_path = semisl_dir,
                     precision = config.INFO["precision"],
-                    strategy = config.INFO["strategy"],
+                    strategy = strategy,
                     num_nodes = config.INFO["num_nodes"],
                     gpus_per_node = config.INFO["gpus_per_node"],
                     restart = config.SemiSL["restart_training"])

@@ -116,7 +116,9 @@ def download_dataset(dataset_path,dataset_name):
         raise NotImplementedError("downloading for this dataset is not implemented")
 
 
-def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,standardized_to_imagenet:bool=False):
+def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,
+                   augment_val_set:bool=False,
+                   standardized_to_imagenet:bool=False):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -194,7 +196,37 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-    elif info["dataset"] == "IMAGENET1K-1%":
+    elif info["dataset"] == "IMAGENET1K-1/100":
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        train_dataset = datasets.ImageFolder(root=train_dir)
+        test_dataset = datasets.ImageFolder(root=val_dir)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.999,0.001])
+        # Desired number of images per class ~ 12.8
+        num_images_per_class = 13
+        num_samples = len(train_dataset)
+        # draw subset_ratio shuffled indices 
+        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
+        train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+    elif info["dataset"] == "IMAGENET1K-5/100":
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        train_dataset = datasets.ImageFolder(root=train_dir)
+        test_dataset = datasets.ImageFolder(root=val_dir)
+        if validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.995,0.005])
+        # Desired number of images per class ~ 64
+        num_images_per_class = 64
+        num_samples = len(train_dataset)
+        # draw subset_ratio shuffled indices 
+        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
+        train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+    elif info["dataset"] == "IMAGENET1K-10/100":
         train_dir = info["imagenet_train_dir"]
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
@@ -203,21 +235,6 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-        # Desired number of images per class ~ 12.8
-        num_images_per_class = 13
-        num_samples = len(train_dataset)
-        # draw subset_ratio shuffled indices 
-        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
-        train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-    elif info["dataset"] == "IMAGENET1K-10%":
-        train_dir = info["imagenet_train_dir"]
-        val_dir = info["imagenet_val_dir"]
-        mean= [0.485, 0.456, 0.406]
-        std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=train_dir)
-        test_dataset = datasets.ImageFolder(root=val_dir)
-        if validation:
-            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
         # Desired number of images per class ~ 128
         num_images_per_class = 128
         num_samples = len(train_dataset)
@@ -262,17 +279,24 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
     else:
         test_transforms = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
                                      v2.Normalize(mean=mean,std=std)])
+    if augment_val_set:
+        val_transforms = aug_transforms
+        val_n_views = info["n_views"]
+    else:
+        val_transforms = test_transforms
+        val_n_views = 1
+
     train_dataset = WrappedDataset(train_dataset,aug_transforms,n_views = info["n_views"])
     test_dataset = WrappedDataset(test_dataset,test_transforms)
     if validation:
-        val_dataset = WrappedDataset(val_dataset,test_transforms)
-
+        val_dataset = WrappedDataset(val_dataset,val_transforms,n_views=val_n_views) 
+    
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
                                                num_workers=num_workers,pin_memory=True,persistent_workers=True)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                               num_workers = num_workers,pin_memory=True,persistent_workers=True)
     if validation:
-        val_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
+        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True)
     else:
         val_loader = None
