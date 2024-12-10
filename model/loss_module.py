@@ -65,31 +65,31 @@ class EllipsoidPackingLoss:
         # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
         # average radii.shape = (B,)
         radii = self.rs*torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/min(preds.shape[-1],self.n_views)+ 1e-12)
-        # calculate the largest eigenvectors by the [power iteration] method
-        # devided by matrix norm to make sure |corr^n_power| not too small, and ~ 1
-        corr_norm = torch.linalg.matrix_norm(corr,keepdim=True)
-        normalized_corr = corr/(corr_norm + 1e-6).detach()
-        corr_pow = torch.stack([torch.matrix_power(normalized_corr[i], self.n_pow_iter) for i in range(corr.shape[0])])
-        b0 = torch.rand(preds.shape[-1],device=preds.device)
-        eigens = torch.matmul(corr_pow,b0) # size = B*O
-        eigens = eigens/(torch.norm(eigens,dim=1,keepdim=True) + 1e-6) 
-        # loss 0: minimize the size of each ellipsoids
-        # the loss is normalized to make it dimensionless 
-        #    to make sure radii =0 and dij = inf is not a valid state 
-        ll = self.lw0*torch.sum(radii)
         # loss 1: repulsive loss
         diff = centers[:, None, :] - centers[None, :, :]
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
-        #print("dist=",dist_matrix)
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
         self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
-        ll += 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
-        # loss 2: alignment loss (1 - cosine-similarity)
-        sim = torch.matmul(eigens,eigens.transpose(0,1))**2
-        ll += 0.5*(1.0 - torch.square(sim[mask])).sum()*self.lw2
+        ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
+        if abs(self.lw0) > 1e-6:
+            # loss 0: minimize the size of each ellipsoids
+            # to make sure radii =0 and dij = inf is not a valid state 
+            ll += self.lw0*torch.sum(radii)
+        if abs(self.lw2) > 1e-6:
+            # calculate the largest eigenvectors by the [power iteration] method
+            # devided by matrix norm to make sure |corr^n_power| not too small, and ~ 1
+            corr_norm = torch.linalg.matrix_norm(corr,keepdim=True)
+            normalized_corr = corr/(corr_norm + 1e-6).detach()
+            corr_pow = torch.stack([torch.matrix_power(normalized_corr[i], self.n_pow_iter) for i in range(corr.shape[0])])
+            b0 = torch.rand(preds.shape[-1],device=preds.device)
+            eigens = torch.matmul(corr_pow,b0) # size = B*O
+            eigens = eigens/(torch.norm(eigens,dim=1,keepdim=True) + 1e-6) 
+            # loss 2: alignment loss (1 - cosine-similarity)
+            sim = torch.matmul(eigens,eigens.transpose(0,1))**2
+            ll += 0.5*(1.0 - torch.square(sim[mask])).sum()*self.lw2
         if self.record:
             self.status["corrs"] = corr.cpu().detach()
             self.status["centers"] = centers.cpu().detach()

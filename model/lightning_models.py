@@ -162,8 +162,9 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             precision:str="16-true",
             restart:bool=False,
             prof_mem:bool=False):
-    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv")
-    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard")
+    logger_version = None if restart else 0
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
                          accelerator="gpu",
@@ -176,8 +177,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                 mode = "max",
                                                                 dirpath=os.path.join(checkpoint_path),
                                                                 filename = 'best_val'),
-                                    pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                  save_top_k = -1,
+                                    pl.callbacks.ModelCheckpoint(save_top_k = -1,
                                                                   save_last = False,
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
@@ -196,8 +196,10 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
         # continue training
         ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
         if ckpt_files and (not restart):
-            model = CLAP.load_from_checkpoint(ckpt_files[0]) # Load best checkpoint after training
-        trainer.fit(model, train_loader,val_loader)
+            print("loading ...." + ckpt_files[0])
+            trainer.fit(model, train_loader,val_loader,ckpt_path=ckpt_files[0])
+        else:
+            trainer.fit(model, train_loader,val_loader)
         model = CLAP.load_from_checkpoint(trained_filename) # Load best checkpoint after training
     return model
 
@@ -370,9 +372,9 @@ def train_lc(linear_model:pl.LightningModule,
         print(f'Found pretrained model at {trained_filename}, loading...')
         model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Automatically loads the model with the saved hyperparameters
         return model
-    #linear_model.save_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
-    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv")
-    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard")
+    logger_version = None if restart else 0
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger,tensorboard_logger],
                          accelerator="gpu",
@@ -385,8 +387,7 @@ def train_lc(linear_model:pl.LightningModule,
                                                                 mode = "max",
                                                                 dirpath=os.path.join(checkpoint_path),
                                                                 filename = 'best_val'),
-                                    pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                save_top_k = -1,
+                                    pl.callbacks.ModelCheckpoint(save_top_k = -1,
                                                                 save_last = False,
                                                                 every_n_epochs = every_n_epochs,
                                                                 dirpath=checkpoint_path,
@@ -396,8 +397,10 @@ def train_lc(linear_model:pl.LightningModule,
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
     if ckpt_files and (not restart):
-        linear_model =  LinearClassification.load_from_checkpoint(ckpt_files[0])
-    trainer.fit(linear_model, train_loader,val_loader)
+        print("loading ... " + ckpt_files[0])
+        trainer.fit(linear_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
+    else:
+        trainer.fit(linear_model, train_loader,val_loader)
     test_output = trainer.test(linear_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],
@@ -553,9 +556,9 @@ def train_finetune(
         model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
         return model
     
-    #linear_model.save_customized_checkpoint(os.path.join(checkpoint_path,"init.ckpt"))
-    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv")
-    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard")
+    logger_version = None if restart else 0
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger,tensorboard_logger],
                          accelerator="gpu",
@@ -564,13 +567,11 @@ def train_finetune(
                          strategy=strategy,
                          max_epochs=max_epochs,
                          precision=precision,
-                         callbacks=[pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                monitor = "val_acc",
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
                                                                 mode = "max",
                                                                 dirpath=os.path.join(checkpoint_path),
                                                                 filename = 'best_val'),
-                                    pl.callbacks.ModelCheckpoint(save_weights_only=True,
-                                                                save_top_k = -1,
+                                    pl.callbacks.ModelCheckpoint(save_top_k = -1,
                                                                 save_last = False,
                                                                 every_n_epochs = every_n_epochs,
                                                                 dirpath=checkpoint_path,
@@ -580,8 +581,10 @@ def train_finetune(
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
     if ckpt_files and (not restart):
-        finetune_model =  FineTune.load_from_checkpoint(ckpt_files[0],backbone = finetune_model.backbone,linear_net = finetune_model.linear_net)
-    trainer.fit(finetune_model, train_loader,val_loader)
+        print("loading ..." + ckpt_files[0])
+        trainer.fit(finetune_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
+    else:
+        trainer.fit(finetune_model, train_loader,val_loader)
     test_output = trainer.test(finetune_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],

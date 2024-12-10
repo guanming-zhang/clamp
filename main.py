@@ -106,8 +106,8 @@ if __name__ == '__main__':
     elif config.LC["lr_scale"] == "sqrt":
         lc_lr = config.LC["lr"]*math.sqrt(config.LC["batch_size"]) # lr ~ 0.05
     # load the backbone form the latest checkpoint
-    last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-    ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+    best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
+    ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
     ssl_model.backbone.remove_projection_head()
 
     lc_model = lightning_models.LinearClassification(
@@ -167,8 +167,8 @@ if __name__ == '__main__':
             elif config.LC["lr_scale"] == "sqrt":
                 semisl_lr = config.SemiSL["lr"]*math.sqrt(config.SemiSL["batch_size"]) # lr ~ 0.05
             # load the backbone from the checkpoint
-            last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-            ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+            best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
+            ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
             ssl_model.backbone.remove_projection_head()
             # load the linear classifier from the checkpoint
             lc_model = lightning_models.LinearClassification.load_from_checkpoint(os.path.join(lc_dir,"best_val.ckpt"),backbone = ssl_model.backbone)
@@ -218,8 +218,8 @@ if __name__ == '__main__':
                 tl_lr = config.TL["lr"]*math.sqrt(config.TL["batch_size"]) # lr ~ 0.05
 
             # load the backbone from the checkpoint
-            last_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-            ssl_model = lightning_models.CLAP.load_from_checkpoint(last_ssl_ckpt)
+            best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
+            ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
             ssl_model.backbone.remove_projection_head()
         
             tl_model = lightning_models.LinearClassification(
