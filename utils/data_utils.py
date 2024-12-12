@@ -5,8 +5,7 @@ from PIL import Image
 from torch.utils.data import random_split,Dataset
 from torchvision import datasets
 from torchvision.transforms import v2
-import os
-import time
+from lmdb_dataset import ImageFolderLMDB
 
 
 def show_images(imgs,nrow,ncol,titles = None):
@@ -118,7 +117,8 @@ def download_dataset(dataset_path,dataset_name):
 
 def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,
                    augment_val_set:bool=False,
-                   standardized_to_imagenet:bool=False):
+                   standardized_to_imagenet:bool=False,
+                   lmdb_imagenet:bool=False):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -192,8 +192,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=train_dir)
-        test_dataset = datasets.ImageFolder(root=val_dir)
+        if lmdb_imagenet:
+            train_dataset = ImageFolderLMDB(train_dir)
+            test_dataset = ImageFolderLMDB(val_dir)
+        else:
+            train_dataset = datasets.ImageFolder(root=train_dir)
+            test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif info["dataset"] == "IMAGENET1K-1/100":
@@ -201,8 +205,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=train_dir)
-        test_dataset = datasets.ImageFolder(root=val_dir)
+        if lmdb_imagenet:
+            train_dataset = ImageFolderLMDB(train_dir)
+            test_dataset = ImageFolderLMDB(val_dir)
+        else:
+            train_dataset = datasets.ImageFolder(root=train_dir)
+            test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.999,0.001])
         # Desired number of images per class ~ 12.8
@@ -216,8 +224,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=train_dir)
-        test_dataset = datasets.ImageFolder(root=val_dir)
+        if lmdb_imagenet:
+            train_dataset = ImageFolderLMDB(train_dir)
+            test_dataset = ImageFolderLMDB(val_dir)
+        else:
+            train_dataset = datasets.ImageFolder(root=train_dir)
+            test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.995,0.005])
         # Desired number of images per class ~ 64
@@ -231,8 +243,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        train_dataset = datasets.ImageFolder(root=train_dir)
-        test_dataset = datasets.ImageFolder(root=val_dir)
+        if lmdb_imagenet:
+            train_dataset = ImageFolderLMDB(train_dir)
+            test_dataset = ImageFolderLMDB(val_dir)
+        else:
+            train_dataset = datasets.ImageFolder(root=train_dir)
+            test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
         # Desired number of images per class ~ 128
