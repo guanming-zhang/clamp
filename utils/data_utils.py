@@ -5,7 +5,8 @@ from PIL import Image
 from torch.utils.data import random_split,Dataset
 from torchvision import datasets
 from torchvision.transforms import v2
-from lmdb_dataset import ImageFolderLMDB
+from .lmdb_dataset import ImageFolderLMDB
+
 
 
 def show_images(imgs,nrow,ncol,titles = None):
@@ -118,7 +119,7 @@ def download_dataset(dataset_path,dataset_name):
 def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,
                    augment_val_set:bool=False,
                    standardized_to_imagenet:bool=False,
-                   lmdb_imagenet:bool=False):
+                   lmdb_imagenet:bool=True):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -200,7 +201,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
             test_dataset = datasets.ImageFolder(root=val_dir)
         if validation:
             train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-    elif info["dataset"] == "IMAGENET1K-1/100":
+    elif info["dataset"] == "IMAGENET1K-1percent":
         train_dir = info["imagenet_train_dir"]
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
@@ -219,7 +220,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-    elif info["dataset"] == "IMAGENET1K-5/100":
+    elif info["dataset"] == "IMAGENET1K-5percent":
         train_dir = info["imagenet_train_dir"]
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
@@ -238,7 +239,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
-    elif info["dataset"] == "IMAGENET1K-10/100":
+    elif info["dataset"] == "IMAGENET1K-10percent":
         train_dir = info["imagenet_train_dir"]
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]

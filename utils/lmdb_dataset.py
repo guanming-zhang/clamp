@@ -41,7 +41,7 @@ class ImageFolderLMDB(data.Dataset):
         # load img
         imgbuf = unpacked[0]
         # only for python 3
-        buf =  BytesIO.BytesIO() 
+        buf =  BytesIO() 
         buf.write(imgbuf)
         # Move the cursor to the start of the buffer
         buf.seek(0)
