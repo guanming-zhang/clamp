@@ -110,6 +110,8 @@ class Config:
                 for option in compulsory[section]:
                     if not option in getattr(self,section):
                         raise ValueError(option + " is missing in the [{}] section".format(section))
+                if "lr" in config[section] and "lr_sweep" in config[section]:
+                    raise ValueError("cannot have lr and lr_sweep in the same section, please use either one") 
 
     def _check_existence(self,str_list,container):
         for s in str_list:
@@ -159,6 +161,8 @@ class Config:
             "optimizer":"string",
             "lr":"float",
             "lr_scale":"string",
+            "lr_sweep":"float_list",
+            "grad_accumulation_steps":"int",
             "momentum":"float",
             "weight_decay":"float",
             "lars_eta":"float",
@@ -185,6 +189,7 @@ class Config:
             "optimizer":"string",
             "lr":"float",
             "lr_scale":"string",
+            "lr_sweep":"float_list",
             "momentum":"float",
             "weight_decay":"float",
             "n_epochs":"int",
@@ -201,6 +206,7 @@ class Config:
                 "optimizer":"string",
                 "lr":"float",
                 "lr_scale":"string",
+                "lr_sweep":"float_list",
                 "momentum":"float",
                 "weight_decay":"float",
                 "n_epochs":"int",

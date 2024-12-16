@@ -76,7 +76,7 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
-                 optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float, 
+                 optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
                  n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
         super().__init__()
@@ -156,6 +156,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
+            grad_accumulation_steps:int=1,
             num_nodes:int=1,
             gpus_per_node:int=1,
             strategy:str="auto",
@@ -167,6 +168,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
+                         accumulate_grad_batches=grad_accumulation_steps,
                          accelerator="gpu",
                          devices=gpus_per_node,
                          num_nodes=num_nodes,
@@ -211,7 +213,7 @@ class LinearClassification(pl.LightningModule):
     def __init__(self,
                  backbone:torch.nn.Module,
                  in_dim:int,out_dim:int,use_batch_norm:bool,
-                 optim_name:str,lr:float,momentum:float,weight_decay:float,
+                 optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,
                  n_epochs:int):
         super().__init__()
         # do not save the whole neural net as the hyperparameter
@@ -320,12 +322,15 @@ class LinearClassification(pl.LightningModule):
                                   weight_decay=self.hparams.weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
-        #cosine scheduler
-        #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+        if self.hparams.scheduler_name == "cosine":
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
+        elif self.hparams.scheduler_name == "multi_step":
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                     milestones=[int(self.hparams.n_epochs*0.6),
                                                                 int(self.hparams.n_epochs*0.8)],
                                                     gamma=0.1)
+        else:
+            return [optimizer]
         return [optimizer],[scheduler]
     '''
     def reset_optimizer_scheduler(self,optimizer = None,scheduler = None):

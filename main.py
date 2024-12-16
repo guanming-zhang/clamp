@@ -164,7 +164,7 @@ if __name__ == '__main__':
                 os.makedirs(semisl_dir,exist_ok=True)
             if config.SemiSL["lr_scale"] == "linear":
                 semisl_lr = config.SemiSL["lr"]*config.SemiSL["batch_size"]/256.0 # lr ~ 0.1
-            elif config.LC["lr_scale"] == "sqrt":
+            elif config.SemiSL["lr_scale"] == "sqrt":
                 semisl_lr = config.SemiSL["lr"]*math.sqrt(config.SemiSL["batch_size"]) # lr ~ 0.05
             # load the backbone from the checkpoint
             best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")

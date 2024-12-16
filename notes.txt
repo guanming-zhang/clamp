@@ -1,6 +1,4 @@
-# hyperparameters in the relevent paper
-1 simCLR https://arxiv.org/pdf/2002.05709
-a)contrastive learning
-  a.1 square root learning rate is better at batch_size<=2048 than linear learning rate  
-  a.2 10 warmup steps
-  a.3 proj_in_dim(dim before the proj_header) = 2048, proj_out_dim = 256
+to do
+1) lr sweep for transfer learning + cosine scheduler
+2) grad accumulation
+3) new image_floder 
