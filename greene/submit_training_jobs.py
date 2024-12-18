@@ -133,7 +133,7 @@ class JobManager:
                 base_batch_dict["ARG1"] = dir_path
                 base_batch_dict.update(batch_dict)
                 self.create_sbatch_file(base_batch_dict)
-                self.submit_sbatch()
+                #self.submit_sbatch()
                 count += 1
     def hours_from_starting(self,dir_path):
         def get_est_time_now():
@@ -186,14 +186,14 @@ if __name__ == "__main__":
     # around 5 minutes per epoch
     # if batch size is too small or num_cpus is too low then GPU utility will be low
     jm = JobManager("./default_configs/default_config_cifar10.ini")
-    options = {"DATA":{"n_views":[8,12,16]},
-               "SSL":{"lr":[0.1,0.2],"batch_size":[256],"lw0":[0.5,1.0,1.5],"lw2":[0.5,1.0,1.5]},
-               "LC":{"lr":[0.2]}}
+    options = {"DATA":{"n_views":[8]},
+               "SSL":{"lr":[0.1],"batch_size":[256],"lw0":[0.5,1.0],"lw2":[1.0,1.5]},
+               "LC":{"lr_sweep":["0.1,0.2,0.3"]}}
     # cpus_per_taks is equivalent to cpus_per_gpu in our setting
     jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
     #jm.submit("./simulations/cifar10/resnet18/linear/grid_search1",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
-    jm.continue_prev_submit("./simulations/cifar10/resnet18/linear/grid_search1",{"TIME":"30:55:00","MEM_PER_NODE":"6GB"})
-
+    #jm.continue_prev_submit("./simulations/cifar10/resnet18/linear/grid_search1",{"TIME":"30:55:00","MEM_PER_NODE":"6GB"})
+    jm.submit("./test",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
     '''
     ########################################
     # imagenet1k

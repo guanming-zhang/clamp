@@ -163,11 +163,9 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             precision:str="16-true",
             restart:bool=False,
             prof_mem:bool=False):
-    print("build logger")
     logger_version = None if restart else 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
-    print("start to build the trainer")
 
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
@@ -193,7 +191,6 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
-    print("I am here")
     if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
         print(f'Found pretrained model at {trained_filename}, loading...')
         model = CLAP.load_from_checkpoint(trained_filename)
