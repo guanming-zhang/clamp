@@ -119,7 +119,7 @@ def download_dataset(dataset_path,dataset_name):
 def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,
                    augment_val_set:bool=False,
                    standardized_to_imagenet:bool=False,
-                   lmdb_imagenet:bool=True):
+                   lmdb_imagenet:bool=True,prefetch_factor:int=2):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -309,12 +309,12 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True
         val_dataset = WrappedDataset(val_dataset,val_transforms,n_views=val_n_views) 
     
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
-                                               num_workers=num_workers,pin_memory=True,persistent_workers=True)
+                                               num_workers=num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
-                                              num_workers = num_workers,pin_memory=True,persistent_workers=True)
+                                              num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     if validation:
         val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
-                                                 num_workers = num_workers,pin_memory=True,persistent_workers=True)
+                                                 num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     else:
         val_loader = None
     return train_loader,test_loader,val_loader

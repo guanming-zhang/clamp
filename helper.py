@@ -124,10 +124,11 @@ class Config:
             "num_nodes":"int",
             "gpus_per_node":"int",
             "cpus_per_gpu":"int",
+            "prefetch_factor":"int",
             "precision":"string",
             "strategy":"string",
             "fix_random_seed":"boolean",
-            "prof_mem":"string"}
+            "if_profile":"boolean"}
         elif section == "DATA":
             options_type = {
             "dataset":"string",

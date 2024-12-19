@@ -29,13 +29,15 @@ if __name__ == '__main__':
     ###################################################
     # self-superivesed learning
     ###################################################
+    print("---------------SELF SUPERVISED LEARNING-----------------------")
     # dataset and dataloader
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"]*config.SSL["grad_accumulation_steps"])
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
                                                                                 num_workers = config.INFO["cpus_per_gpu"],validation=True,
                                                                                 augment_val_set=True,
-                                                                                standardized_to_imagenet=False)
+                                                                                standardized_to_imagenet=False,
+                                                                                prefetch_factor=config.INFO["prefetch_factor"])
 
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
@@ -81,10 +83,12 @@ if __name__ == '__main__':
                                         gpus_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir,
                                         grad_accumulation_steps= config.SSL["grad_accumulation_steps"],
-                                        restart = config.LC["restart_training"])
+                                        restart = config.LC["restart_training"],
+                                        if_profile=config.INFO["if_profile"])
     ###################################################
     # linear classification
     ###################################################
+    print("---------------LINEAR CLASSIFICATION-------------------------")
     lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     # need to specify the location of the data for imagenet
     data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
@@ -95,7 +99,8 @@ if __name__ == '__main__':
         data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
 
     lc_train_loader,lc_test_loader,lc_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
-                                                                         standardized_to_imagenet=config.LC["standardize_to_imagenet"])
+                                                                         standardized_to_imagenet=config.LC["standardize_to_imagenet"],
+                                                                         prefetch_factor=config.INFO["prefetch_factor"])
     # setup the linear classification
     lc_dir = os.path.join(config.loc,"lc")
     if not os.path.isdir(lc_dir):
@@ -147,7 +152,8 @@ if __name__ == '__main__':
                 strategy = strategy,
                 num_nodes = config.INFO["num_nodes"],
                 gpus_per_node = config.INFO["gpus_per_node"], 
-                restart = config.LC["restart_training"])
+                restart = config.LC["restart_training"],
+                if_profile=config.INFO["if_profile"])
         # get the best performed one
         with open(os.path.join(lc_sub_dir,"results.json")) as f:
             result = json.load(f)
@@ -163,6 +169,7 @@ if __name__ == '__main__':
     # Semi-supervised learning(if SemiSL section exists)
     ###################################################
     if len(config.SemiSL) > 0:
+        print("---------------SEMI-SUPERVISED LEARNING --------------------------")
         semisl_batch_size = config.SemiSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
         if config.INFO["strategy"] == "ddp":
             strategy = "ddp_find_unused_parameters_true"
@@ -175,7 +182,8 @@ if __name__ == '__main__':
             data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
             data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
             semisl_train_loader,semisl_test_loader,semisl_val_loader = data_utils.get_dataloader(data_info,semisl_batch_size,num_workers=config.INFO["cpus_per_gpu"],
-                                                                                 standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"])
+                                                                                 standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"],
+                                                                                 prefetch_factor=config.INFO["prefetch_factor"])
             semisl_dir = os.path.join(config.loc,"semisl-"+dataset)
             if not os.path.isdir(semisl_dir):
                 os.makedirs(semisl_dir,exist_ok=True)
@@ -221,7 +229,8 @@ if __name__ == '__main__':
                     strategy = strategy,
                     num_nodes = config.INFO["num_nodes"],
                     gpus_per_node = config.INFO["gpus_per_node"],
-                    restart = config.SemiSL["restart_training"])
+                    restart = config.SemiSL["restart_training"],
+                    if_profile=config.INFO["if_profile"])
             # get the best performed one
             with open(os.path.join(semisl_sub_dir,"results.json")) as f:
                 result = json.load(f)
@@ -239,6 +248,7 @@ if __name__ == '__main__':
     ##################################################
     # Transfer learning(freeze backbone)
     if len(config.TL) > 0:
+        print("---------------TRANSFER LEARNING --------------------------")
         tl_output_dim = {"CIFAR100":100,
                         "FOOD101":101,
                         "FLOWERS102":102}
@@ -252,7 +262,8 @@ if __name__ == '__main__':
             data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
                      "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
             tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
-                                                                                standardized_to_imagenet=config.TL["standardize_to_imagenet"])
+                                                                                standardized_to_imagenet=config.TL["standardize_to_imagenet"],
+                                                                                prefetch_factor=config.INFO["prefetch_factor"])
             tl_dir = os.path.join(config.loc,"tl-"+dataset)
             if not os.path.isdir(tl_dir):
                 os.makedirs(tl_dir,exist_ok=True)
@@ -298,7 +309,8 @@ if __name__ == '__main__':
                         strategy = config.INFO["strategy"],
                         num_nodes = config.INFO["num_nodes"],
                         gpus_per_node = config.INFO["gpus_per_node"],
-                        restart = config.TL["restart_training"])
+                        restart = config.TL["restart_training"],
+                        if_profile=config.INFO["if_profile"])
                 # get the best performed one
                 with open(os.path.join(tl_sub_dir,"results.json")) as f:
                     result = json.load(f)

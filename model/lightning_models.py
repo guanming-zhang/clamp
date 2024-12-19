@@ -11,7 +11,6 @@ import os
 import re
 import subprocess
 import json
-from pytorch_lightning.profilers import SimpleProfiler
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 #####################################################
@@ -162,7 +161,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             strategy:str="auto",
             precision:str="16-true",
             restart:bool=False,
-            prof_mem:bool=False):
+            if_profile:bool=False):
     logger_version = None if restart else 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
@@ -185,8 +184,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
                                                                   filename = "ssl-{epoch:d}"),
-                                    pl.callbacks.LearningRateMonitor('epoch')])
-    
+                                    pl.callbacks.LearningRateMonitor('epoch')],
+                         profiler="simple" if if_profile else None)
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
@@ -370,7 +369,8 @@ def train_lc(linear_model:pl.LightningModule,
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool = False):
+            restart:bool = False,
+            if_profile:bool = False):
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'lc-epoch={:d}.ckpt'.format(max_epochs-1))
@@ -398,7 +398,8 @@ def train_lc(linear_model:pl.LightningModule,
                                                                 every_n_epochs = every_n_epochs,
                                                                 dirpath=checkpoint_path,
                                                                 filename = "lc-{epoch:d}"),
-                                    pl.callbacks.LearningRateMonitor('epoch')])
+                                    pl.callbacks.LearningRateMonitor('epoch')],
+                         profiler="simple" if if_profile else None)
     trainer.logger._default_hp_metric = False 
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
@@ -549,7 +550,8 @@ def train_finetune(
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool=False):
+            restart:bool=False,
+            if_profile:bool=False):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ft-epoch={:d}.ckpt'.format(max_epochs-1))
@@ -582,8 +584,9 @@ def train_finetune(
                                                                 every_n_epochs = every_n_epochs,
                                                                 dirpath=checkpoint_path,
                                                                 filename = "ft-{epoch:d}"),
-                                    pl.callbacks.LearningRateMonitor('epoch')])
-    trainer.logger._default_hp_metric = False   
+                                    pl.callbacks.LearningRateMonitor('epoch')],
+                         profiler="simple" if if_profile else None )
+    trainer.logger._default_hp_metric = False  
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
     if ckpt_files and (not restart):
