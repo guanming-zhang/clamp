@@ -75,9 +75,9 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
-                 optim_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
+                 optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,backbone_out_dim,prune,use_projection_head,proj_dim,proj_out_dim)
         self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
@@ -106,9 +106,18 @@ class CLAP(pl.LightningModule):
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
 
-        linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.hparams.warmup_epochs)
-        cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
-        scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
+        if self.hparams.scheduler_name == "cosine-warmup":
+            linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.hparams.warmup_epochs)
+            cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
+            scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
+        elif self.hparams.scheduler_name == "multi_step":
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                                    milestones=[int(self.hparams.n_epochs*0.6),
+                                                                int(self.hparams.n_epochs*0.8)],
+                                                    gamma=0.1)
+        else:
+            return [optimizer]
+
         return [optimizer],[scheduler]
     
     def training_step(self, batch, batch_idx):
@@ -134,21 +143,46 @@ class CLAP(pl.LightningModule):
         imgs, labels = batch
         imgs = torch.cat(imgs,dim=0)
         preds = self.backbone(imgs)
-        # the shape of preds before reshaping [V*B,O]
+        ####### measure the validation accuracy by point to cluster distance
+        # preds is [(V*B),O] dimesional matrix
+        com = torch.mean(preds,dim=0)
+        # make the center of mass of pres locate at the origin
+        preds -= com
+        # normalize to make all the preds in the unit sphere
+        preds_norm_max = torch.max(torch.linalg.vector_norm(preds,dim=1)) + 1e-6
+        preds = preds/preds_norm_max
+        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
         preds = torch.reshape(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
-        # the shape of centers in [B,O]
-        centers = torch.mean(preds,dim=0,keepdim=True)
-        # the shape of diff : (V,B,B,O)
+        # centers.shape = B*O for B ellipsoids
+        centers = torch.mean(preds,dim=0)
+        # point to cluster distance matrix (V,B,B)
         diff = preds[:,:,None,:] - centers[None,None,:,:]
-        # distance matrix (V,B,B)
-        dist_matrix = torch.sum(diff**2,dim=-1)
+        pt_cluster_dist = torch.sum(diff**2,dim=-1)    
         # nearest (V,B), nearest[1,2] = 4 
         # nearest[1,2] = 4 means the the nearest cluster to
         # the 1th view of in cluster 2 is cluster 4 
-        nearest = torch.argmin(dist_matrix,dim=-1)
+        nearest = torch.argmin(pt_cluster_dist,dim=-1)
         correct = nearest == torch.arange(self.hparams.batch_size,device=nearest.device).repeat(self.hparams.n_views,1)
         acc = (correct.sum()/(self.hparams.n_views*self.hparams.batch_size)).float()
         self.log('val_acc', acc, prog_bar=True,sync_dist=True)
+        ####### measure the average distance and radius
+        # correlation matrix 
+        preds -= centers
+        corr = torch.matmul(torch.permute(preds,(1,2,0)), torch.permute(preds,(1,0,2)))/self.hparams.n_views # size B*O*O
+        # average radii.shape = (B,)
+        radii = torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/min(preds.shape[-1],self.hparams.n_views)+ 1e-12)
+        diff = centers[:, None, :] - centers[None, :, :]
+        dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
+        #add 1e-6 to avoid dividing by zero
+        sum_radii = self.hparams.rs*(radii[None,:] + radii[:,None] + 1e-6)
+        nbr_mask = torch.logical_and(dist_matrix < sum_radii*0.99,dist_matrix>self.hparams.margin)
+        num_nbr = torch.sum(nbr_mask,dim=1)
+        activity = torch.sum(num_nbr > 0)/self.hparams.batch_size
+        mean_radius = torch.mean(radii)
+        mean_nbr = torch.mean(num_nbr.float())
+        self.log('val_radius', mean_radius, prog_bar=True,sync_dist=True)
+        self.log('val_activity', activity, prog_bar=True,sync_dist=True)
+        self.log('val_num_nbr', mean_nbr, prog_bar=True,sync_dist=True)
         return acc
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,

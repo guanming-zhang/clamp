@@ -56,6 +56,7 @@ if __name__ == '__main__':
                                   proj_out_dim = config.SSL["proj_out_dim"],
                                   optim_name = config.SSL["optimizer"],
                                   lr = ssl_lr,
+                                  scheduler_name = config.SSL["lr_scheduler"],
                                   momentum = config.SSL["momentum"],
                                   weight_decay = config.SSL["weight_decay"],
                                   eta = config.SSL["lars_eta"],

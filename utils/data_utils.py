@@ -119,7 +119,7 @@ def download_dataset(dataset_path,dataset_name):
 def get_dataloader(info:dict,batch_size:int,num_workers:int,validation:bool=True,
                    augment_val_set:bool=False,
                    standardized_to_imagenet:bool=False,
-                   lmdb_imagenet:bool=True,prefetch_factor:int=2):
+                   lmdb_imagenet:bool=False,prefetch_factor:int=2):
     '''
     info: a dictionary provides the information of 
           1) dataset 
