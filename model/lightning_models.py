@@ -77,10 +77,14 @@ class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
+                 loss_name:str,
                  n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,backbone_out_dim,prune,use_projection_head,proj_dim,proj_out_dim)
-        self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
+        if loss_name == "EllipsoidPackingLoss":
+            self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
+        elif loss_name == "RepulsiveEllipsoidPackingLoss":
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         # all the hyperparameters are added as attributes to this class

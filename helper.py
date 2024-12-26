@@ -137,6 +137,7 @@ class Config:
             "augmentations":"string_list",
             "n_views":"int",
             "batch_size":"int",
+            "augmentation_package":"string",
             # for image augmentations
             "crop_size":"int",
             "crop_min_scale":"float",

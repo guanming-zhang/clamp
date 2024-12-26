@@ -34,10 +34,10 @@ if __name__ == '__main__':
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"]*config.SSL["grad_accumulation_steps"])
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
-                                                                                num_workers = config.INFO["cpus_per_gpu"],validation=True,
-                                                                                augment_val_set=True,
+                                                                                num_workers = config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=False,
-                                                                                prefetch_factor=config.INFO["prefetch_factor"])
+                                                                                prefetch_factor=config.INFO["prefetch_factor"],
+                                                                                aug_pkg = config.INFO["augmentation_package"])
 
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
@@ -102,6 +102,7 @@ if __name__ == '__main__':
     lc_train_loader,lc_test_loader,lc_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                          standardized_to_imagenet=config.LC["standardize_to_imagenet"],
                                                                          prefetch_factor=config.INFO["prefetch_factor"])
+
     # setup the linear classification
     lc_dir = os.path.join(config.loc,"lc")
     if not os.path.isdir(lc_dir):

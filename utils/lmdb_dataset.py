@@ -1,10 +1,11 @@
 import os
 import os.path as osp
 from PIL import Image
+import numpy as np
 from io import BytesIO
 import lmdb
 import pickle
-
+import cv2
 import torch.utils.data as data
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
@@ -19,7 +20,7 @@ would like to tribute to the author Ligeng Zhu
 
 
 class ImageFolderLMDB(data.Dataset):
-    def __init__(self, db_path:str, transform=None,target_transform=None):
+    def __init__(self, db_path:str, transform=None,target_transform=None,img_type="PIL"):
         self.db_path = db_path
         self.env = lmdb.open(db_path, subdir=osp.isdir(db_path),
                              readonly=True, lock=False,
@@ -27,7 +28,7 @@ class ImageFolderLMDB(data.Dataset):
         with self.env.begin(write=False) as txn:
             self.length = pickle.loads(txn.get(b'__len__'))
             self.keys = pickle.loads(txn.get(b'__keys__'))
-
+        self.img_type = img_type
         self.transform = transform
         self.target_transform = target_transform
 
@@ -40,12 +41,20 @@ class ImageFolderLMDB(data.Dataset):
 
         # load img
         imgbuf = unpacked[0]
-        # only for python 3
-        buf =  BytesIO() 
-        buf.write(imgbuf)
-        # Move the cursor to the start of the buffer
-        buf.seek(0)
-        img = Image.open(buf).convert('RGB')
+        if self.img_type == "PIL":
+            # only for python 3
+            buf =  BytesIO() 
+            buf.write(imgbuf)
+            # Move the cursor to the start of the buffer
+            buf.seek(0)
+            img = Image.open(buf).convert('RGB')
+        elif self.img_type =="Numpy":
+            # Decode buffer directly into a NumPy array
+            img = np.frombuffer(imgbuf, dtype=np.uint8)
+            img = cv2.imdecode(img, cv2.IMREAD_COLOR)  # Decoding as a color image (BGR format)
+            # Convert to RGB if needed
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
 
         # load label
         target = unpacked[1]
