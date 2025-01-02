@@ -36,8 +36,9 @@ if __name__ == '__main__':
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
                                                                                 num_workers = config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=False,
+                                                                                augment_val_set = True,
                                                                                 prefetch_factor=config.INFO["prefetch_factor"],
-                                                                                aug_pkg = config.INFO["augmentation_package"])
+                                                                                aug_pkg = config.DATA["augmentation_package"])
 
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
@@ -54,6 +55,7 @@ if __name__ == '__main__':
                                   use_projection_head=config.SSL["use_projection_head"],
                                   proj_dim = config.SSL["proj_dim"],
                                   proj_out_dim = config.SSL["proj_out_dim"],
+                                  loss_name= config.SSL["loss_function"],
                                   optim_name = config.SSL["optimizer"],
                                   lr = ssl_lr,
                                   scheduler_name = config.SSL["lr_scheduler"],

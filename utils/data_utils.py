@@ -166,7 +166,6 @@ def get_transform(aug_ops:list,aug_params:dict,aug_pkg="torchvision"):
                 trans_list.append(v2.Lambda(lambda x:x.repeat(3,1,1)))
         return v2.Compose(trans_list)
     elif aug_pkg == "albumentations":
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         trans_list = []
         for aug in aug_ops:
             if aug == "RandomResizedCrop":
@@ -182,7 +181,8 @@ def get_transform(aug_ops:list,aug_params:dict,aug_pkg="torchvision"):
             elif aug == "RandomGrayscale":
                 trans_list.append(A.ToGray(p=aug_params["grayscale_prob"]))
             elif aug == "GaussianBlur":
-                trans_list.append(A.GaussianBlur(blur_limit=aug_params["blur_kernel_size"],
+                trans_list.append(A.GaussianBlur(blur_limit=(aug_params["blur_kernel_size"],aug_params["blur_kernel_size"]),
+                                                 sigma_limit=(0.1, 2.0),
                                                  p=aug_params["blur_prob"]))
             elif aug == "RandomHorizontalFlip":
                 trans_list.append(A.HorizontalFlip(p=aug_params["hflip_prob"]))
@@ -218,7 +218,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             raise NotImplemented("augmentation from package [" + aug_pkg +"] is not implemented")
     # set the default transform operation list
     # if the images are loaded as PIL, it needs to be converted into numpy if aug_ops == "albumentations"
-    if (info["dataset"] != "CIFAR10") or (not "IMAGENET" in info["dataset"]) and aug_pkg == "albumentations":
+    if info["dataset"] != "CIFAR10" and not "IMAGENET" in info["dataset"] and aug_pkg == "albumentations":
         aug_pkg = "torchvision"
         print("augmantiation method is set to [torchvision]")
         print("[albumentations] only support CIFAR10 or IMAGENET for now")
@@ -311,7 +311,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         val_dir = info["imagenet_val_dir"]
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
-        if train_dir.endswith("lmdb") and "val_dir".endswith("lmdb"):
+        if train_dir.endswith("lmdb") and val_dir.endswith("lmdb"):
             img_type = "PIL" if aug_pkg=="torchvision" else "Numpy"
             train_dataset = ImageFolderLMDB(train_dir,img_type=img_type)
             test_dataset = ImageFolderLMDB(val_dir,img_type=img_type)
@@ -353,7 +353,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
     if augment_val_set:
         val_dataset = WrappedDataset(val_dataset,train_transform,n_views = info["n_views"],aug_pkg=aug_pkg)
     else:
-        val_dataset = WrappedDataset(val_dataset,test_transform)
+        val_dataset = WrappedDataset(val_dataset,test_transform,n_views=1)
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
                                                num_workers=num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,

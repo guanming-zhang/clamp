@@ -75,9 +75,9 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,backbone_out_dim:int,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
+                 loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
-                 loss_name:str,
                  n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,backbone_out_dim,prune,use_projection_head,proj_dim,proj_out_dim)
@@ -96,10 +96,9 @@ class CLAP(pl.LightningModule):
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
-        elif self.hparams.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.backbone.parameters(),
+        elif self.hparams.optim_name == "Adam":
+            optimizer = optim.Adam(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
-                                  momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         elif self.hparams.optim_name == "LARS":
             optimizer = lars.LARS(params=self.backbone.parameters(),
@@ -353,10 +352,9 @@ class LinearClassification(pl.LightningModule):
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
-        elif self.hparams.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=self.linear_net.parameters(),
+        elif self.hparams.optim_name == "Adam":
+            optimizer = optim.Adam(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
-                                  momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
@@ -566,10 +564,9 @@ class FineTune(pl.LightningModule):
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
-        elif self.hparams.optim_name == "AdamW":
-            optimizer = optim.AdamW(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+        elif self.hparams.optim_name == "Adam":
+            optimizer = optim.Adam(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
                                   lr=self.hparams.lr,
-                                  momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
