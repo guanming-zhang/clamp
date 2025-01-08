@@ -1,10 +1,10 @@
 import os
-import anaysis_utils
+import analysis_utils
 import configparser
 import json
 import csv
 import re
-root_dir = "/home/richard/HPC-Scratch/sig-ml/clap/simulations/cifar10/resnet18/linear/grid_search_view_weight"
+root_dir = "/home/richard/HPC-Scratch/sig-ml/clap/simulations/cifar10/resnet18/linear/grid_search_newloss2"
 folders = anaysis_utils.get_directories(root_dir)
 csv_data = [["dir#","ssl_lr","ssl_bs","rs","lw0","lw2","momentum","n_views","pot_pow","test_acc1","test_acc5"]]
 print(folders)

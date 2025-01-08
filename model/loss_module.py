@@ -144,4 +144,50 @@ class RepulsiveEllipsoidPackingLoss:
         # loss 0: minimize the size of each ellipsoids
         ll += self.lw0*torch.sum(radii)
         return ll
+    
 
+class RepulsiveEllipsoidPackingLossStdNorm:
+    def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
+                 rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
+        self.n_views = n_views
+        self.batch_size = batch_size
+        self.rs = rs # scale of radii
+        self.pot_pow = pot_pow # power for the repulsive potential
+        self.lw0 = lw0 
+        self.lw1 = lw1 # loss weight for the repulsion
+        self.margin = margin # no replsion if the distance between two elliposids < margins 
+        self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
+                                "lw1":lw1,"rs":rs,"margin":margin}
+    def __call__(self,preds,labels):
+        # preds is [(V*B),O] dimesional matrix
+        com = torch.mean(preds,dim=0)
+        # make the center of mass of pres locate at the origin
+        preds -= com
+        # normalize the vectors by dividing their standard deviation
+        std = torch.sqrt(torch.sum(preds*preds,dim=0)/(preds.shape[0] - 1.0) + 1e-12)
+        preds = preds/std
+        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
+        preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        # centers.shape = B*O for B ellipsoids
+        centers = torch.mean(preds,dim=0)
+        # correlation matrix 
+        preds -= centers
+        trace = torch.sum(torch.permute(preds,(1,0,2))**2,dim=(1,2))/self.n_views 
+        # average radius for each ellipsoid
+        # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
+        # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
+        # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
+        # average radii.shape = (B,)
+        radii = self.rs*torch.sqrt(trace/min(preds.shape[-1],self.n_views)+ 1e-12)
+        # loss 1: repulsive loss
+        diff = centers[:, None, :] - centers[None, :, :]
+        dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
+        #add 1e-6 to avoid dividing by zero
+        sum_radii = radii[None,:] + radii[:,None] + 1e-6
+        nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
+        self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
+        mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
+        ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
+        # loss 0: minimize the size of each ellipsoids
+        ll += self.lw0*torch.sum(radii)
+        return ll

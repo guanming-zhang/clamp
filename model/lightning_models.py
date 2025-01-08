@@ -85,6 +85,8 @@ class CLAP(pl.LightningModule):
             self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
         elif loss_name == "RepulsiveEllipsoidPackingLoss":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
+        elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         # all the hyperparameters are added as attributes to this class
