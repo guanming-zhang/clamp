@@ -126,6 +126,6 @@ def power_iteration(matraces, num_iterations=100, epsilon=1e-6):
             if torch.norm(next_vec - vec) < epsilon:
                 break
             vec = next_vec
-        eigens.append(vec)
+        eigens.append(vec.reshape(1,vec.shape[0]))
     return torch.cat(eigens,dim=0)
     
