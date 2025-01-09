@@ -93,4 +93,39 @@ def get_cov_traces(covs:Union[np.ndarray, torch.Tensor])->np.ndarray:
         return trace
     else:
         raise TypeError("input must be an ndarray or tensor")
+
+def power_iteration(matraces, num_iterations=100, epsilon=1e-6):
+    """
+    Finds the principal eigenvector of a matrix using the power iteration method.
+
+    Args:
+        matrix (torch.Tensor): The matrix for which to find the principal eigenvector. 
+                               Shape: (n, D, D)
+        num_iterations (int): Number of iterations for convergence.
+        epsilon (float): Convergence tolerance.
+
+    Returns:
+        torch.Tensor: The principal eigenvector.
+    """
+    # Initialize a random vector
+    eigens = []
+    # Ensure the matrix is square
+    n, m = matraces.shape[1],matraces.shape[2]
+    if n != m:
+        raise ValueError("Matrix must be square for this method.")
+    for i in range(matraces.shape[0]):
+        vec = torch.rand(n, device=matraces.device)
+        vec = vec / vec.norm()  # Normalize the initial vector
+        for _ in range(num_iterations):
+            # Multiply matrix by the vector
+            next_vec = torch.matmul(matraces[i], vec)
+            # Normalize the vector
+            next_vec = next_vec / next_vec.norm()
+
+            # Check for convergence
+            if torch.norm(next_vec - vec) < epsilon:
+                break
+            vec = next_vec
+        eigens.append(vec)
+    return torch.cat(eigens,dim=0)
     

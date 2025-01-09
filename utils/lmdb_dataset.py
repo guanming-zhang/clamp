@@ -55,7 +55,6 @@ class ImageFolderLMDB(data.Dataset):
             # Convert to RGB if needed
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-
         # load label
         target = unpacked[1]
 

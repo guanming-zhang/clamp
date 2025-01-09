@@ -5,13 +5,13 @@ import json
 import csv
 import re
 root_dir = "/home/richard/HPC-Scratch/sig-ml/clap/simulations/cifar10/resnet18/linear/grid_search_newloss2"
-folders = anaysis_utils.get_directories(root_dir)
+folders = analysis_utils.get_directories(root_dir)
 csv_data = [["dir#","ssl_lr","ssl_bs","rs","lw0","lw2","momentum","n_views","pot_pow","test_acc1","test_acc5"]]
 print(folders)
 for folder in folders:
     config = configparser.ConfigParser()
     config.read(os.path.join(folder,"config.ini"))
-    config_dict = anaysis_utils.configparser_to_dict(config)
+    config_dict = analysis_utils.configparser_to_dict(config)
     with open(os.path.join(folder,"lc","results.json"),"r") as f:
         result_dict = json.load(f)
     test_acc1 = result_dict["best_test_acc1"]
