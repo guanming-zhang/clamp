@@ -87,6 +87,9 @@ class CLAP(pl.LightningModule):
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
+        elif loss_name == "PackingLoss":
+            self.loss_fn = loss_module.PackingLoss(n_views,batch_size,lw1,lw2,rs,pot_pow,margin)
+        
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         # all the hyperparameters are added as attributes to this class
@@ -231,7 +234,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
     if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
         print(f'Found pretrained model at {trained_filename}, loading...')
-        model = CLAP.load_from_checkpoint(trained_filename)
+        model = CLAP.load_from_checkpoint(last_ckpt)
         return model
     else:
         # continue training
@@ -251,7 +254,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
 class LinearClassification(pl.LightningModule):
     def __init__(self,
                  backbone:torch.nn.Module,
-                 in_dim:int,out_dim:int,use_batch_norm:bool,
+                 in_dim:int,out_dim:int,
+                 use_batch_norm:bool,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,
                  n_epochs:int):
         super().__init__()

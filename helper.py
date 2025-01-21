@@ -200,7 +200,8 @@ class Config:
             "n_epochs":"int",
             "batch_size":"int",
             "save_every_n_epochs":"int",
-            "restart_training":"boolean"
+            "restart_training":"boolean",
+            "lc_dataset":"string",
             }
         elif section == "SemiSL":
             # Semi-superivsed learning

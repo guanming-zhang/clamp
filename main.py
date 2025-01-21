@@ -71,6 +71,8 @@ if __name__ == '__main__':
                                   lw2 = config.SSL["lw2"],
                                   pot_pow = config.SSL["pot_pow"],
                                   rs = config.SSL["rs"])
+    if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+        ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
     ssl_dir = os.path.join(config.loc,"ssl")
     if not os.path.isdir(ssl_dir):
         os.makedirs(ssl_dir,exist_ok=True)
@@ -96,6 +98,8 @@ if __name__ == '__main__':
     # need to specify the location of the data for imagenet
     data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
             "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+    if "lc_dataset" in config.LC:
+        data_info["dataset"] = config.LC["lc_dataset"]
     # need to specify the location of the data for imagenet
     if "IMAGENET1K" in config.DATA["dataset"]:
         data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
@@ -138,7 +142,9 @@ if __name__ == '__main__':
                  momentum = config.LC["momentum"],
                  weight_decay = config.LC["weight_decay"],
                  n_epochs = config.LC["n_epochs"])
-    
+        # convert batch norm to sync batch norm if ddp
+        if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+            lc_model.linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lc_model.linear_net)  
         with helper.Timer("LC Training"):
             if config.INFO["strategy"] == "ddp":
                 strategy = "ddp_find_unused_parameters_true"
@@ -208,12 +214,18 @@ if __name__ == '__main__':
                 best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
+                # convert batch norm to sync batch norm
+                if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+                    ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
                 # load the best linear classifier from the checkpoint
                 with open(os.path.join(lc_dir,"results.json")) as f:
                     results = json.load(f)
                     best_lc_dir = results["best_model_dir"] 
                 # load the linear classifier from the checkpoint
                 lc_model = lightning_models.LinearClassification.load_from_checkpoint(os.path.join(best_lc_dir,"best_val.ckpt"),backbone = ssl_model.backbone)
+                # convert batch norm to sync batch norm if ddp
+                if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+                    lc_model.linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lc_model.linear_net)  
                 semisl_model = lightning_models.FineTune(backbone = ssl_model.backbone,
                     linear_net= lc_model.linear_net,
                     optim_name = config.SemiSL["optimizer"],
@@ -288,7 +300,9 @@ if __name__ == '__main__':
                 best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
-        
+                # convert batch norm to sync batch norm for ddp traning
+                if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+                    ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
                 tl_model = lightning_models.LinearClassification(
                         backbone = ssl_model.backbone,
                         in_dim = config.SSL["backbone_out_dim"],
@@ -300,7 +314,9 @@ if __name__ == '__main__':
                         momentum = config.TL["momentum"],
                         weight_decay = config.TL["weight_decay"],
                         n_epochs = config.TL["n_epochs"])
-
+                # convert batch norm to sync batch norm
+                if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
+                    tl_model.linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(tl_model.linear_net)
                 tl_model = lightning_models.train_lc(
                         linear_model = tl_model,
                         train_loader = tl_train_loader,
