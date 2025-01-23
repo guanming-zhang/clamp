@@ -50,7 +50,6 @@ if __name__ == '__main__':
     else:
         prune_backbone = False
     ssl_model = lightning_models.CLAP(backbone_name = config.SSL["backbone"],
-                                  backbone_out_dim = config.SSL["backbone_out_dim"],
                                   prune = prune_backbone,
                                   use_projection_head=config.SSL["use_projection_head"],
                                   proj_dim = config.SSL["proj_dim"],
@@ -133,7 +132,7 @@ if __name__ == '__main__':
 
         lc_model = lightning_models.LinearClassification(
                  backbone = ssl_model.backbone,
-                 in_dim = config.SSL["backbone_out_dim"],
+                 in_dim = ssl_model.backbone.feature_dim,
                  out_dim = config.LC["output_dim"],
                  use_batch_norm = config.LC["use_batch_norm"],
                  optim_name = config.LC["optimizer"],
@@ -305,7 +304,7 @@ if __name__ == '__main__':
                     ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
                 tl_model = lightning_models.LinearClassification(
                         backbone = ssl_model.backbone,
-                        in_dim = config.SSL["backbone_out_dim"],
+                        in_dim = ssl_model.backbone.feature_dim,
                         out_dim = tl_output_dim[dataset],
                         use_batch_norm = config.TL["use_batch_norm"],
                         optim_name = config.TL["optimizer"],

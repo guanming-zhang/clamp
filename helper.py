@@ -92,7 +92,7 @@ class Config:
 
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
-                        "SSL":["batch_size","backbone","use_projection_head","backbone_out_dim",
+                        "SSL":["batch_size","backbone","use_projection_head",
                             "optimizer","loss_function","n_epochs"],
                         "LC":["use_batch_norm","batch_size","optimizer","output_dim","n_epochs"]
                         }
@@ -160,7 +160,6 @@ class Config:
             "use_projection_head":"boolean",
             "proj_dim":"int",
             "proj_out_dim":"int",
-            "backbone_out_dim":"int",
             "optimizer":"string",
             "lr":"float",
             "lr_scale":"string",

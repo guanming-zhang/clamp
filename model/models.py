@@ -4,29 +4,33 @@ import json
 import torchvision
 
 class BackboneNet(torch.nn.Module):
-    def __init__(self,resnet_type:str="resnet18",backbone_out_dim=2048,prune:bool=False,
+    def __init__(self,resnet_type:str="resnet18",prune:bool=False,
                  use_projection_head=False,proj_dim = -1, proj_out_dim=-1):
         super().__init__()
         self.model_name = "BackboneNet"
         # this is a sloppy way of recording hyperperameters
         self.hyper_parameters = {"resnet_type":resnet_type,
                                 "use_projection_head":use_projection_head,
-                                "backbone_out_dim":backbone_out_dim,
                                 "proj_out_dim":proj_out_dim}
         if resnet_type == "resnet18":
             # the fc layer dim for resnet18 is 512*num_classes
-            self.net = torchvision.models.resnet18(num_classes = backbone_out_dim)
+            self.net = torchvision.models.resnet18()
+            self.feature_dim = 512
         elif resnet_type == "resnet34":
-            # the fc layer dim for resnet34 is 2048*num_classes
-            self.net = torchvision.models.resnet34(num_classes = backbone_out_dim)
+            # the fc layer dim for resnet34 is 512*num_classes
+            self.net = torchvision.models.resnet34()
+            self.feature_dim = 512
         elif resnet_type == "resnet50":
             # the fc layer dim for resnet18 is 2048*num_classes
-            self.net = torchvision.models.resnet50(num_classes = backbone_out_dim)
+            self.net = torchvision.models.resnet50()
+            self.feature_dim = 2048
+        self.net.fc = torch.nn.Identity()
         if use_projection_head:
             if proj_out_dim < 0:
                 raise ValueError("proj_dim must be larger than 0")
             self.projection_head = torch.nn.Sequential(
-                        torch.nn.Linear(backbone_out_dim,proj_dim),
+                        torch.nn.Linear(self.feature_dim,proj_dim),
+                        torch.nn.BatchNorm1d(proj_dim),
                         torch.nn.ReLU(),
                         torch.nn.Linear(proj_dim,proj_out_dim)
                     )
@@ -48,7 +52,6 @@ class BackboneNet(torch.nn.Module):
         # repalce the conv1 for CIFAR10 dataset
         self.net.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=2, bias=False) 
     
-
     def forward(self,x):
         return self.projection_head(self.net(x))
 
