@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 from torch import linalg as LA
+from typing import Tuple
+import torch.distributed as dist
 class CrossEntropy:
     def __init__(self):
         self.loss_name = "cross_entropy_loss"
@@ -105,6 +107,7 @@ class RepulsiveEllipsoidPackingLossStdNorm:
                  rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
         self.n_views = n_views
         self.batch_size = batch_size
+        self.eff_batch_size = batch_size
         self.rs = rs # scale of radii
         self.pot_pow = pot_pow # power for the repulsive potential
         self.lw0 = lw0 
@@ -112,27 +115,39 @@ class RepulsiveEllipsoidPackingLossStdNorm:
         self.margin = margin # no replsion if the distance between two elliposids < margins 
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
                                 "lw1":lw1,"rs":rs,"margin":margin}
-    def __call__(self,preds,labels):
-        # preds is [(V*B),O] dimesional matrix
-        com = torch.mean(preds,dim=0)
+
+    def __call__(self,preds,labels):   
+        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
+        # V-number of views, B-batch size, O-output embedding dim
+        preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        # get the embedings from all the processes(GPUs) if ddp
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            outputs = [torch.zeros_like(preds) for _ in range(ws)]
+            dist.all_gather(outputs,preds,async_op=False)
+            # preds is now [V,(B*ws),O]
+            preds = torch.cat(outputs)
+        else:
+            ws = 1
+        # preds is [V,B*ws,O] dimesional matrix
+        com = torch.mean(preds,dim=(0,1))
         # make the center of mass of pres locate at the origin
         preds -= com
         # normalize the vectors by dividing their standard deviation
-        std = torch.sqrt(torch.sum(preds*preds,dim=0)/(preds.shape[0] - 1.0) + 1e-12)
+        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds[1] - 1.0) + 1e-12)
         preds = preds/std
-        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
-        preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
-        # centers.shape = B*O for B ellipsoids
+        # centers.shape = [B*ws,O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
         # correlation matrix 
         preds -= centers
-        trace = torch.sum(torch.permute(preds,(1,0,2))**2,dim=(1,2))/self.n_views 
+        # traces[i] = 1/(n-1)*trace(pred[:,i,:]*pred[:,i,:]^T)
+        traces = torch.sum(torch.permute(preds,(1,0,2))**2,dim=(1,2))/(self.n_views -1.0)
         # average radius for each ellipsoid
         # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
         # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
         # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
         # average radii.shape = (B,)
-        radii = self.rs*torch.sqrt(trace/min(preds.shape[-1],self.n_views)+ 1e-12)
+        radii = self.rs*torch.sqrt(traces/min(preds.shape[-1],self.n_views)+ 1e-12)
         # loss 1: repulsive loss
         diff = centers[:, None, :] - centers[None, :, :]
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
@@ -221,3 +236,32 @@ class RepulsiveEllipsoidPackingLossStdNormMem:
             self.mem_radii = self.mem_radii[:self.max_mem_size]
             self.current_mem_size = self.max_mem_size
         return ll
+
+
+class MMCR_Loss(torch.nn.Module):
+    def __init__(self, n_views: int, distributed: bool = True):
+        super(MMCR_Loss, self).__init__()
+        self.n_views = n_views
+        self.distribured = distributed
+
+    def forward(self, z: torch.Tensor,labels:torch.Tensor) -> Tuple[torch.Tensor, dict]:
+        # z is [(V*B),O] dimesional matrix
+        z = F.normalize(z, dim=-1)
+        z = torch.reshape(z,(self.n_views,self.batch_size,z.shape[-1]))
+        # gather across devices into list
+        if self.distribured:
+            ws = torch.distributed.get_world_size()
+            z_list = [
+                torch.zeros_like(z)
+                for _ in range(ws)
+            ]
+            torch.distributed.all_gather(z_list, z, async_op=False)
+            # append all
+            z = torch.cat(z_list)
+        else:
+            ws = 1
+        centroids = torch.mean(z, dim=0)
+        global_nuc = torch.linalg.svdvals(centroids).sum()
+        loss = - global_nuc
+
+        return loss
