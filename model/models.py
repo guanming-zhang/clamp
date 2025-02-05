@@ -28,9 +28,16 @@ class BackboneNet(torch.nn.Module):
         if use_projection_head:
             if proj_out_dim < 0:
                 raise ValueError("proj_dim must be larger than 0")
-            self.projection_head = torch.nn.Sequential(
+            if isinstance(proj_dim,list):
+                network = [torch.nn.Linear(self.feature_dim,proj_dim[0]),torch.nn.ReLU()]
+                for i in range(len(proj_dim)-1):
+                    network.append(torch.nn.Linear(proj_dim[i],proj_dim[i+1]))
+                    network.append(torch.nn.ReLU())
+                network.append(torch.nn.Linear(proj_dim[-1],proj_out_dim))
+                self.projection_head = torch.nn.Sequential(*network)
+            else:
+                self.projection_head = torch.nn.Sequential(
                         torch.nn.Linear(self.feature_dim,proj_dim),
-                        torch.nn.BatchNorm1d(proj_dim),
                         torch.nn.ReLU(),
                         torch.nn.Linear(proj_dim,proj_out_dim)
                     )

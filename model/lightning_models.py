@@ -74,24 +74,26 @@ def get_top_n_latest_checkpoints(directory, n):
 #  Self-supervise learning
 #####################################################
 class CLAP(pl.LightningModule):
-    def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:int,proj_out_dim:int,
+    def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         if loss_name == "EllipsoidPackingLoss":
             self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
-        elif loss_name == "RepulsiveEllipsoidPackingLoss":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
+            print("max_mem_size is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
-        elif loss_name == "PackingLoss":
-            self.loss_fn = loss_module.PackingLoss(n_views,batch_size,lw1,lw2,rs,pot_pow,margin)
+            print("max_mem_size is dummy for " + loss_name)
+            print("lw2 is dummy for " + loss_name)
+        elif loss_name == "RepulsiveEllipsoidPackingLossStdNormMem":
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow,margin)
         
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
+        self.val_step_outputs = []
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
     def configure_optimizers(self):
@@ -137,16 +139,27 @@ class CLAP(pl.LightningModule):
         self.train_step_outputs.append(loss.detach())
         self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
         return loss
-    
     def on_train_epoch_end(self):
-        # `outputs` is a list of losses from each batch returned by training_step()
+        # measure the norm of the gradient
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
+        #self.log('grad_norm', total_norm, prog_bar=True,sync_dist=True) 
         # refresh the iteration loss at the end of every epoch
         self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
-    
+    def on_after_backward(self):
+        # Calculate the total gradient norm for all parameters
+        total_norm = 0.0
+        for p in self.parameters():
+            if p.grad is not None:
+                # Calculate the norm for each parameter
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+        # Log the gradient norm; this can be viewed in TensorBoard or your logger
+        self.log('grad_norm', total_norm, prog_bar=True)
+
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
         imgs = torch.cat(imgs,dim=0)
@@ -172,7 +185,6 @@ class CLAP(pl.LightningModule):
         nearest = torch.argmin(pt_cluster_dist,dim=-1)
         correct = nearest == torch.arange(self.hparams.batch_size,device=nearest.device).repeat(self.hparams.n_views,1)
         acc = (correct.sum()/(self.hparams.n_views*self.hparams.batch_size)).float()
-        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
         ####### measure the average distance and radius
         # correlation matrix 
         preds -= centers
@@ -181,23 +193,39 @@ class CLAP(pl.LightningModule):
         radii = torch.sqrt(torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)/min(preds.shape[-1],self.hparams.n_views)+ 1e-12)
         diff = centers[:, None, :] - centers[None, :, :]
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
-        #add 1e-6 to avoid dividing by zero
+        # add 1e-6 to avoid dividing by zero
         sum_radii = self.hparams.rs*(radii[None,:] + radii[:,None] + 1e-6)
         nbr_mask = torch.logical_and(dist_matrix < sum_radii*0.99,dist_matrix>self.hparams.margin)
         num_nbr = torch.sum(nbr_mask,dim=1)
         activity = torch.sum(num_nbr > 0)/self.hparams.batch_size
         mean_radius = torch.mean(radii)
         mean_nbr = torch.mean(num_nbr.float())
-        self.log('val_radius', mean_radius, prog_bar=True,sync_dist=True)
-        self.log('val_activity', activity, prog_bar=True,sync_dist=True)
-        self.log('val_num_nbr', mean_nbr, prog_bar=True,sync_dist=True)
+        mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*(self.hparams.batch_size - 1.0))
+        self.val_step_outputs.append({"val_acc":acc, 
+                                    "val_radius":mean_radius,
+                                    "val_activity":activity,
+                                    "val_num_nbr":mean_nbr,
+                                    "val_dist":mean_dist})
         return acc
+    
+    def on_validation_epoch_end(self):
+        val_radius =  torch.stack([x["val_radius"] for x in self.val_step_outputs]).mean() 
+        val_activity = torch.stack([x["val_activity"] for x in self.val_step_outputs]).mean()
+        val_num_nbr = torch.stack([x["val_num_nbr"] for x in self.val_step_outputs]).mean()
+        val_acc = torch.stack([x["val_acc"] for x in self.val_step_outputs]).mean()
+        val_dist = torch.stack([x["val_dist"] for x in self.val_step_outputs]).mean()
+        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        self.log('val_radius',val_radius,prog_bar=True,sync_dist=True)
+        self.log('val_activity',val_activity,prog_bar=True,sync_dist=True)
+        self.log('val_num_nbr',val_num_nbr,prog_bar=True,sync_dist=True)
+        self.log("val_dist",val_dist,prog_bar=True,sync_dist=True)
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
             grad_accumulation_steps:int=1,
+            max_grad_norm:float=0.0,
             num_nodes:int=1,
             gpus_per_node:int=1,
             strategy:str="auto",
@@ -207,10 +235,12 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     logger_version = None if restart else 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
-
+    if max_grad_norm <= 0.0:
+        max_grad_norm = None
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
                          accumulate_grad_batches=grad_accumulation_steps,
+                         gradient_clip_val=max_grad_norm,
                          accelerator="gpu",
                          devices=gpus_per_node,
                          num_nodes=num_nodes,
@@ -269,6 +299,7 @@ class LinearClassification(pl.LightningModule):
             self.linear_net = torch.nn.Linear(in_dim,out_dim)
         self.train_step_outputs = []
         self.test_step_outputs = []
+        self.val_step_outputs = []
         self.train_epoch_loss = []
         self.test_acc1 = 0.0
         self.test_acc5 = 0.0
@@ -303,7 +334,7 @@ class LinearClassification(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
+        self.val_step_outputs.append(acc)
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -327,6 +358,11 @@ class LinearClassification(pl.LightningModule):
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
         self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+    
+    def on_validation_epoch_end(self):
+        val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
+        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        return super().on_validation_epoch_end()
 
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()
@@ -477,6 +513,7 @@ class FineTune(pl.LightningModule):
         self.backbone.remove_projection_head()
         self.linear_net = linear_net
         self.train_step_outputs = []
+        self.val_step_outputs = []
         self.test_step_outputs = []
         self.train_epoch_loss = []
         self.test_acc1 = 0.0
@@ -513,7 +550,7 @@ class FineTune(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.log('val_acc', acc, prog_bar=True,sync_dist=True)
+        self.val_step_outputs.append(acc)
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -537,6 +574,12 @@ class FineTune(pl.LightningModule):
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
         self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+    
+    def on_validation_epoch_end(self):
+        val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
+        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        return super().on_validation_epoch_end()
+
 
     def on_train_epoch_end(self):
         # `outputs` is a list of losses from each batch returned by training_step()

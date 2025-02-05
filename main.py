@@ -68,6 +68,7 @@ if __name__ == '__main__':
                                   lw0 = config.SSL["lw0"],
                                   lw1 = config.SSL["lw1"],
                                   lw2 = config.SSL["lw2"],
+                                  max_mem_size= config.SSL["max_mem_size"],
                                   pot_pow = config.SSL["pot_pow"],
                                   rs = config.SSL["rs"])
     if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
@@ -81,6 +82,7 @@ if __name__ == '__main__':
                                         val_loader = ssl_val_loader,
                                         max_epochs=config.SSL["n_epochs"],
                                         every_n_epochs = config.SSL["save_every_n_epochs"],
+                                        max_grad_norm= config.SSL["max_grad_norm"],
                                         precision = config.INFO["precision"],
                                         strategy = config.INFO["strategy"],
                                         num_nodes = config.INFO["num_nodes"],

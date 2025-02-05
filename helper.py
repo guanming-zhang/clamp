@@ -109,7 +109,7 @@ class Config:
             else:
                 for option in compulsory[section]:
                     if not option in getattr(self,section):
-                        raise ValueError(option + " is missing in the [{}] section".format(section))
+                        print("warning: " + option + " is missing in the [{}] section".format(section))
                 if "lr" in getattr(self,section) and "lr_sweep" in getattr(self,section):
                     getattr(self,section).pop("lr")
                     print("lr overrided by lr_sweep!!") 
@@ -158,7 +158,7 @@ class Config:
             "batch_size":"int",
             "backbone":"string",
             "use_projection_head":"boolean",
-            "proj_dim":"int",
+            "proj_dim":"int_list",
             "proj_out_dim":"int",
             "optimizer":"string",
             "lr":"float",
@@ -175,6 +175,8 @@ class Config:
             "lw2":"float",
             "pot_pow":"float",
             "rs":"float",
+            "max_mem_size":"int",
+            "max_grad_norm":"float",
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
