@@ -29,7 +29,7 @@ class InfoNCELoss:
 
 class EllipsoidPackingLoss:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,lw2:float=1.0,
-                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7,record:bool = False):
+                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,record:bool = False):
         self.n_views = n_views
         self.batch_size = batch_size
         self.n_pow_iter = n_pow_iter # for power iteration
@@ -38,11 +38,9 @@ class EllipsoidPackingLoss:
         self.lw0 = lw0 # loss weight for the ellipsoid size
         self.lw1 = lw1 # loss weight for the repulsion
         self.lw2 = lw2 # loss weight for the alignment
-        self.margin = margin # no replsion if the distance between two elliposids < margins 
         self.loss_name = "ellipoids_packing_loss"
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
-                                "lw0":lw0,"lw1":lw1,"lw2":lw2,"n_pow_iter":n_pow_iter,"rs":rs,
-                                "margin":margin}
+                                "lw0":lw0,"lw1":lw1,"lw2":lw2,"n_pow_iter":n_pow_iter,"rs":rs}
         self.record = record
         if record:
             self.status = dict()
@@ -73,7 +71,7 @@ class EllipsoidPackingLoss:
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
-        nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
+        nbr_mask = dist_matrix < sum_radii
         self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
@@ -104,29 +102,28 @@ class EllipsoidPackingLoss:
 
 class RepulsiveEllipsoidPackingLossStdNorm:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
-                 rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
+                 rs:float=2.0,pot_pow:float=2.0):
         self.n_views = n_views
         self.batch_size = batch_size
-        self.eff_batch_size = batch_size
         self.rs = rs # scale of radii
         self.pot_pow = pot_pow # power for the repulsive potential
         self.lw0 = lw0 
         self.lw1 = lw1 # loss weight for the repulsion
-        self.margin = margin # no replsion if the distance between two elliposids < margins 
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
-                                "lw1":lw1,"rs":rs,"margin":margin}
+                                "lw1":lw1,"rs":rs}
 
     def __call__(self,preds,labels):   
         # reshape [(V*B),O] shape tensor to shape [V,B,O] 
         # V-number of views, B-batch size, O-output embedding dim
-        preds = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        preds_local = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
         # get the embedings from all the processes(GPUs) if ddp
         if dist.is_available() and dist.is_initialized():
             ws = dist.get_world_size() # world size
-            outputs = [torch.zeros_like(preds) for _ in range(ws)]
-            dist.all_gather(outputs,preds,async_op=False)
+            outputs = [torch.zeros_like(preds_local) for _ in range(ws)]
+            dist.all_gather(outputs,preds_local,async_op=False)
+            outputs[dist.get_rank()] = preds_local
             # preds is now [V,(B*ws),O]
-            preds = torch.cat(outputs)
+            preds = torch.cat(outputs,dim=1)
         else:
             ws = 1
         # preds is [V,B*ws,O] dimesional matrix
@@ -153,8 +150,63 @@ class RepulsiveEllipsoidPackingLossStdNorm:
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
-        nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
-        self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
+        nbr_mask = dist_matrix < sum_radii
+        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
+        mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
+        ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
+        # loss 0: minimize the size of each ellipsoids
+        ll += self.lw0*torch.sum(radii)
+        return ll
+
+
+class RepulsiveEllipsoidPackingLossUnitNorm:
+    def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
+                 rs:float=2.0,pot_pow:float=2.0):
+        self.n_views = n_views
+        self.batch_size = batch_size
+        self.rs = rs # scale of radii
+        self.pot_pow = pot_pow # power for the repulsive potential
+        self.lw0 = lw0 
+        self.lw1 = lw1 # loss weight for the repulsion
+        self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
+                                "lw1":lw1,"rs":rs}
+
+    def __call__(self,preds,labels):   
+        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
+        # V-number of views, B-batch size, O-output embedding dim
+        preds_local = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
+        preds_local = torch.nn.functional.normalize(preds,dim=-1)
+        # get the embedings from all the processes(GPUs) if ddp
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            outputs = [torch.zeros_like(preds_local) for _ in range(ws)]
+            dist.all_gather(outputs,preds_local,async_op=False)
+            # it is important to set the outputs[rank] to local output, since computational graph is not 
+            # copied through different gpus, preds_local preserves the local computational graphs
+            outputs[dist.get_rank()] = preds_local
+            # preds is now [V,(B*ws),O]
+            preds = torch.cat(outputs,dim=1)
+        else:
+            ws = 1
+        # centers.shape = [B*ws,O] for B*ws ellipsoids
+        centers = torch.mean(preds,dim=0)
+        # correlation matrix 
+        preds -= centers
+        # traces[i] = 1/(n-1)*trace(pred[:,i,:]*pred[:,i,:]^T)
+        traces = torch.sum(torch.permute(preds,(1,0,2))**2,dim=(1,2))/(self.n_views -1.0)
+        # average radius for each ellipsoid
+        # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
+        # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
+        # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
+        # average radii.shape = (B,)
+        radii = self.rs*torch.sqrt(traces/min(preds.shape[-1],self.n_views)+ 1e-12)
+        # loss 1: repulsive loss
+        diff = centers[:, None, :] - centers[None, :, :]
+        dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
+        #add 1e-6 to avoid dividing by zero
+        sum_radii = radii[None,:] + radii[:,None] + 1e-6
+        nbr_mask = dist_matrix < sum_radii
+        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         # loss 0: minimize the size of each ellipsoids
@@ -164,16 +216,15 @@ class RepulsiveEllipsoidPackingLossStdNorm:
 class RepulsiveEllipsoidPackingLossStdNormMem:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
                  max_mem_size:int=1024,
-                 rs:float=2.0,pot_pow:float=2.0,margin:float=1e-7):
+                 rs:float=2.0,pot_pow:float=2.0):
         self.n_views = n_views
         self.batch_size = batch_size
         self.rs = rs # scale of radii
         self.pot_pow = pot_pow # power for the repulsive potential
         self.lw0 = lw0 
         self.lw1 = lw1 # loss weight for the repulsion
-        self.margin = margin # no replsion if the distance between two elliposids < margins 
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
-                                "lw1":lw1,"rs":rs,"margin":margin}
+                                "lw1":lw1,"rs":rs}
         self.mem_centers = None
         self.mem_radii = None
         self.max_mem_size = max_mem_size
@@ -204,7 +255,7 @@ class RepulsiveEllipsoidPackingLossStdNormMem:
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
-        nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
+        nbr_mask = dist_matrix < sum_radii
         self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
@@ -218,7 +269,7 @@ class RepulsiveEllipsoidPackingLossStdNormMem:
             sum_radii = radii[:,None] + self.mem_radii[None,:] + 1e-6
             # shape (B,M)
             dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
-            nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix>self.margin)
+            nbr_mask = dist_matrix < sum_radii
             ll+= 0.5*((1.0 - dist_matrix[nbr_mask]/sum_radii[nbr_mask])**self.pot_pow).sum()*self.lw1
         #update the memory bank
         if self.current_mem_size == 0:
@@ -256,6 +307,7 @@ class MMCR_Loss(torch.nn.Module):
                 for _ in range(ws)
             ]
             torch.distributed.all_gather(z_list, z, async_op=False)
+            z_list[torch.distributed.get_rank()] = z
             # append all
             z = torch.cat(z_list)
         else:

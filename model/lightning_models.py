@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import json
+import torch.distributed as dist
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 #####################################################
@@ -78,18 +79,22 @@ class CLAP(pl.LightningModule):
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0,margin:float=1e-6):
+                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         if loss_name == "EllipsoidPackingLoss":
-            self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow,margin)
+            self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
             print("max_mem_size is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow,margin)
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            print("max_mem_size is dummy for " + loss_name)
+            print("lw2 is dummy for " + loss_name)
+        elif loss_name == "RepulsiveEllipsoidPackingLossUnitNorm":
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
             print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNormMem":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow,margin)
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow)
         
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
@@ -164,27 +169,35 @@ class CLAP(pl.LightningModule):
         imgs, labels = batch
         imgs = torch.cat(imgs,dim=0)
         preds = self.backbone(imgs)
+        preds = torch.reshape(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
+        # get the embedings from all the processes(GPUs) if ddp
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            outputs = [torch.zeros_like(preds) for _ in range(ws)]
+            dist.all_gather(outputs,preds,async_op=False)
+            # preds is now [V,(B*ws),O]
+            preds = torch.cat(outputs,dim=1)
+        else:
+            ws = 1
         ####### measure the validation accuracy by point to cluster distance
-        # preds is [(V*B),O] dimesional matrix
-        com = torch.mean(preds,dim=0)
+        # preds is [V,B*ws,O] dimesional matrix
+        com = torch.mean(preds,dim=(0,1))
         # make the center of mass of pres locate at the origin
         preds -= com
-        # normalize to make all the preds in the unit sphere
-        preds_norm_max = torch.max(torch.linalg.vector_norm(preds,dim=1)) + 1e-6
-        preds = preds/preds_norm_max
-        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
-        preds = torch.reshape(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
-        # centers.shape = B*O for B ellipsoids
+        # normalize the vectors by dividing their standard deviation
+        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds[1] - 1.0) + 1e-12)
+        preds = preds/std
+        # centers.shape = [(B*ws),O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
-        # point to cluster distance matrix (V,B,B)
+        # point to cluster distance matrix (V,B*ws,B*ws)
         diff = preds[:,:,None,:] - centers[None,None,:,:]
         pt_cluster_dist = torch.sum(diff**2,dim=-1)    
         # nearest (V,B), nearest[1,2] = 4 
         # nearest[1,2] = 4 means the the nearest cluster to
         # the 1th view of in cluster 2 is cluster 4 
         nearest = torch.argmin(pt_cluster_dist,dim=-1)
-        correct = nearest == torch.arange(self.hparams.batch_size,device=nearest.device).repeat(self.hparams.n_views,1)
-        acc = (correct.sum()/(self.hparams.n_views*self.hparams.batch_size)).float()
+        correct = nearest == torch.arange(self.hparams.batch_size*ws,device=nearest.device).repeat(self.hparams.n_views,1)
+        acc = (correct.sum()/(self.hparams.n_views*self.hparams.batch_size*ws)).float()
         ####### measure the average distance and radius
         # correlation matrix 
         preds -= centers
@@ -195,12 +208,12 @@ class CLAP(pl.LightningModule):
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         # add 1e-6 to avoid dividing by zero
         sum_radii = self.hparams.rs*(radii[None,:] + radii[:,None] + 1e-6)
-        nbr_mask = torch.logical_and(dist_matrix < sum_radii*0.99,dist_matrix>self.hparams.margin)
+        nbr_mask = dist_matrix < sum_radii*0.99
         num_nbr = torch.sum(nbr_mask,dim=1)
-        activity = torch.sum(num_nbr > 0)/self.hparams.batch_size
+        activity = torch.sum(num_nbr > 0)/self.hparams.batch_size*ws
         mean_radius = torch.mean(radii)
         mean_nbr = torch.mean(num_nbr.float())
-        mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*(self.hparams.batch_size - 1.0))
+        mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*ws*(self.hparams.batch_size*ws - 1.0))
         self.val_step_outputs.append({"val_acc":acc, 
                                     "val_radius":mean_radius,
                                     "val_activity":activity,
