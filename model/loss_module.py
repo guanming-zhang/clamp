@@ -125,6 +125,7 @@ class RepulsiveEllipsoidPackingLossStdNorm:
             # preds is now [V,(B*ws),O]
             preds = torch.cat(outputs,dim=1)
         else:
+            preds = preds_local
             ws = 1
         # preds is [V,B*ws,O] dimesional matrix
         com = torch.mean(preds,dim=(0,1))
@@ -175,7 +176,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
         # reshape [(V*B),O] shape tensor to shape [V,B,O] 
         # V-number of views, B-batch size, O-output embedding dim
         preds_local = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
-        preds_local = torch.nn.functional.normalize(preds,dim=-1)
+        preds_local = torch.nn.functional.normalize(preds_local,dim=-1)
         # get the embedings from all the processes(GPUs) if ddp
         if dist.is_available() and dist.is_initialized():
             ws = dist.get_world_size() # world size
@@ -187,6 +188,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
             # preds is now [V,(B*ws),O]
             preds = torch.cat(outputs,dim=1)
         else:
+            preds = preds_local
             ws = 1
         # centers.shape = [B*ws,O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
