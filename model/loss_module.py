@@ -132,7 +132,7 @@ class RepulsiveEllipsoidPackingLossStdNorm:
         # make the center of mass of pres locate at the origin
         preds -= com
         # normalize the vectors by dividing their standard deviation
-        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds[1] - 1.0) + 1e-12)
+        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds.shape[1] - 1.0) + 1e-12)
         preds = preds/std
         # centers.shape = [B*ws,O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
