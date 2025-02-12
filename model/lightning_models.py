@@ -210,7 +210,7 @@ class CLAP(pl.LightningModule):
         sum_radii = self.hparams.rs*(radii[None,:] + radii[:,None] + 1e-6)
         nbr_mask = dist_matrix < sum_radii*0.99
         num_nbr = torch.sum(nbr_mask,dim=1)
-        activity = torch.sum(num_nbr > 0)/self.hparams.batch_size*ws
+        activity = torch.sum(num_nbr > 0)/(self.hparams.batch_size*ws)
         mean_radius = torch.mean(radii)
         mean_nbr = torch.mean(num_nbr.float())
         mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*ws*(self.hparams.batch_size*ws - 1.0))

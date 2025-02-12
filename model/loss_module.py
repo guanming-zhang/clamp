@@ -175,7 +175,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
         # reshape [(V*B),O] shape tensor to shape [V,B,O] 
         # V-number of views, B-batch size, O-output embedding dim
         preds_local = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
-        preds_local = torch.nn.functional.normalize(preds,dim=-1)
+        preds_local = torch.nn.functional.normalize(preds_local,dim=-1)
         # get the embedings from all the processes(GPUs) if ddp
         if dist.is_available() and dist.is_initialized():
             ws = dist.get_world_size() # world size
