@@ -125,13 +125,14 @@ class RepulsiveEllipsoidPackingLossStdNorm:
             # preds is now [V,(B*ws),O]
             preds = torch.cat(outputs,dim=1)
         else:
+            preds = preds_local
             ws = 1
         # preds is [V,B*ws,O] dimesional matrix
         com = torch.mean(preds,dim=(0,1))
         # make the center of mass of pres locate at the origin
         preds -= com
         # normalize the vectors by dividing their standard deviation
-        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds[1] - 1.0) + 1e-12)
+        std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds.shape[1] - 1.0) + 1e-12)
         preds = preds/std
         # centers.shape = [B*ws,O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
@@ -187,6 +188,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
             # preds is now [V,(B*ws),O]
             preds = torch.cat(outputs,dim=1)
         else:
+            preds = preds_local
             ws = 1
         # centers.shape = [B*ws,O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
