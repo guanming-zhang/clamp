@@ -131,7 +131,7 @@ if __name__ == '__main__':
         best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
         ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
         ssl_model.backbone.remove_projection_head()
-
+        ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
         lc_model = lightning_models.LinearClassification(
                  backbone = ssl_model.backbone,
                  in_dim = ssl_model.backbone.feature_dim,
@@ -215,6 +215,7 @@ if __name__ == '__main__':
                 best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
+                ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
                 # convert batch norm to sync batch norm
                 if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
                     ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
@@ -301,6 +302,7 @@ if __name__ == '__main__':
                 best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
+                ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
                 # convert batch norm to sync batch norm for ddp traning
                 if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
                     ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)

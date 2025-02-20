@@ -250,6 +250,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     if max_grad_norm <= 0.0:
         max_grad_norm = None
+    sync_batchnrom = True if gpus_per_node*num_nodes > 1 else False
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
                          accumulate_grad_batches=grad_accumulation_steps,
@@ -257,6 +258,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                          accelerator="gpu",
                          devices=gpus_per_node,
                          num_nodes=num_nodes,
+                         sync_batchnorm=sync_batchnrom,
                          precision=precision,
                          strategy=strategy,
                          max_epochs=max_epochs,
