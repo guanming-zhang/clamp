@@ -95,6 +95,14 @@ class CLAP(pl.LightningModule):
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNormMem":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow)
+        elif loss_name == "RepulsiveEllipsoidPackingLoss":
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            print("max_mem_size is dummy for " + loss_name)
+            print("lw2 is dummy for " + loss_name)
+        elif loss_name == "RepulsiveLoss":
+            self.loss_fn = loss_module.RepulsiveLoss(n_views,batch_size,lw0,lw1,rs)
+            print("max_mem_size is dummy for " + loss_name)
+            print("lw2 is dummy for " + loss_name)
         
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
@@ -143,6 +151,7 @@ class CLAP(pl.LightningModule):
         loss = self.loss_fn(preds,None)
         self.train_step_outputs.append(loss.detach())
         self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
+        self.log_histogram()
         return loss
     def on_train_epoch_end(self):
         # measure the norm of the gradient
@@ -163,7 +172,7 @@ class CLAP(pl.LightningModule):
                 total_norm += param_norm.item() ** 2
         total_norm = total_norm ** 0.5
         # Log the gradient norm; this can be viewed in TensorBoard or your logger
-        self.log('grad_norm', total_norm, prog_bar=True)
+        self.log('grad_norm', total_norm, prog_bar=False)
 
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
@@ -186,7 +195,10 @@ class CLAP(pl.LightningModule):
         preds -= com
         # normalize the vectors by dividing their standard deviation
         std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds.shape[1] - 1.0) + 1e-12)
-        preds = preds/std
+        if "stdNorm" in self.hparams.loss_name:
+            preds = preds/std
+        elif "unitNorm" in self.hparams.loss_name:
+            preds = torch.nn.functional.normalize(preds,dim=-1)
         # centers.shape = [(B*ws),O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
         # point to cluster distance matrix (V,B*ws,B*ws)
@@ -214,11 +226,23 @@ class CLAP(pl.LightningModule):
         mean_radius = torch.mean(radii)
         mean_nbr = torch.mean(num_nbr.float())
         mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*ws*(self.hparams.batch_size*ws - 1.0))
+        # detect complete collapse and dimensional collapse
+        # average std for center points in each direction
+        raw_mean_std = torch.mean(std)
+        mean_std = torch.mean(torch.std(centers,dim=0))
+        sig_vals = torch.linalg.svdvals(centers.float())
+        # use 1e-3 as the threshold to estimate the rank and filter out small eigenvalues
+        mean_sigval = torch.mean(sig_vals) + 1e-6
+        std_sigval = torch.std(sig_vals)
+        
         self.val_step_outputs.append({"val_acc":acc, 
                                     "val_radius":mean_radius,
                                     "val_activity":activity,
                                     "val_num_nbr":mean_nbr,
-                                    "val_dist":mean_dist})
+                                    "val_dist":mean_dist,
+                                    "val_raw_std":raw_mean_std,
+                                    "val_std":mean_std,
+                                    "val_sig_ratio":std_sigval/mean_sigval})
         return acc
     
     def on_validation_epoch_end(self):
@@ -227,11 +251,29 @@ class CLAP(pl.LightningModule):
         val_num_nbr = torch.stack([x["val_num_nbr"] for x in self.val_step_outputs]).mean()
         val_acc = torch.stack([x["val_acc"] for x in self.val_step_outputs]).mean()
         val_dist = torch.stack([x["val_dist"] for x in self.val_step_outputs]).mean()
+        val_raw_std = torch.stack([x["val_raw_std"] for x in self.val_step_outputs]).mean()
+        val_std = torch.stack([x["val_std"] for x in self.val_step_outputs]).mean()
+        val_sig_ratio = torch.stack([x["val_sig_ratio"] for x in self.val_step_outputs]).mean()
         self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
         self.log('val_radius',val_radius,prog_bar=True,sync_dist=True)
         self.log('val_activity',val_activity,prog_bar=True,sync_dist=True)
         self.log('val_num_nbr',val_num_nbr,prog_bar=True,sync_dist=True)
         self.log("val_dist",val_dist,prog_bar=True,sync_dist=True)
+        self.log("val_raw_std",val_raw_std,prog_bar=True,sync_dist=True)
+        self.log("val_std",val_std,prog_bar=True,sync_dist=True)
+        self.log("val_sig_ratio",val_sig_ratio,prog_bar=True,sync_dist=True)
+        self.val_step_outputs = []
+    
+    def log_histogram(self):
+        if self.global_step %100 != 0:
+            return 
+        if not hasattr(self.loss_fn,"record"):
+            return
+        for logger in self.loggers:
+            if isinstance(logger, TensorBoardLogger):
+                logger.experiment.add_histogram("radii", self.loss_fn.record["radii"], self.global_step)
+                logger.experiment.add_histogram("norm_center", self.loss_fn.record["norm_center"], self.global_step)
+                logger.experiment.add_histogram("dist", self.loss_fn.record["dist"], self.global_step)
 
 def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             val_loader:torch.utils.data.DataLoader,
