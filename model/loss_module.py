@@ -397,7 +397,7 @@ class RepulsiveLoss:
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
         mask = torch.logical_not(self_mask)
-        ll = - dist_matrix[mask]*self.lw1
+        ll = - torch.sum(dist_matrix[mask])*self.lw1
         # loss 0: minimize the size of each ellipsoids
         ll += self.lw0*torch.sum(radii)
         self.record["radii"] =radii.detach()
