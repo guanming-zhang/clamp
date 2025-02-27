@@ -167,7 +167,7 @@ class RepulsiveEllipsoidPackingLossStdNorm:
 
 class RepulsiveEllipsoidPackingLossUnitNorm:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
-                 rs:float=2.0,pot_pow:float=2.0,min_margin:float=1e-3):
+                 rs:float=2.0,pot_pow:float=2.0,min_margin:float=1e-3,max_range:float=1.5):
         self.n_views = n_views
         self.batch_size = batch_size
         self.rs = rs # scale of radii
@@ -175,6 +175,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
         self.lw0 = lw0 
         self.lw1 = lw1 # loss weight for the repulsion
         self.min_margin = min_margin
+        self.max_range = max_range
         self.record = dict()
         self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
                                 "lw1":lw1,"rs":rs,"min_margin":min_margin}
@@ -221,6 +222,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
         dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
+        sum_radii = torch.min(sum_radii,self.max_range*torch.ones_like(sum_radii,device=sum_radii.device))
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix > self.min_margin)
         self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))

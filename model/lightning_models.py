@@ -165,14 +165,19 @@ class CLAP(pl.LightningModule):
     def on_after_backward(self):
         # Calculate the total gradient norm for all parameters
         total_norm = 0.0
+        total_grad_norm = 0.0
         for p in self.parameters():
             if p.grad is not None:
                 # Calculate the norm for each parameter
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
+                param_norm = p.data.norm(2)
+                grad_norm = p.grad.data.norm(2)
+                total_grad_norm += grad_norm.item() ** 2
+                total_norm += param_norm.item()**2
+        total_grad_norm = total_grad_norm ** 0.5
         total_norm = total_norm ** 0.5
         # Log the gradient norm; this can be viewed in TensorBoard or your logger
-        self.log('grad_norm', total_norm, prog_bar=False)
+        self.log('grad_norm', total_grad_norm, prog_bar=False)
+        self.log('param_norm', total_norm, prog_bar=False)
 
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
