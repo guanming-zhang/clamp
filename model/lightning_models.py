@@ -438,15 +438,32 @@ class LinearClassification(pl.LightningModule):
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
-        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
+        avg_loss_local = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            avg_loss = [torch.zeros_like(avg_loss) for _ in range(ws)]
+            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
+            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
+            dist.all_gather(avg_loss,avg_loss_local,async_op=False)
+            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
+            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
+            avg_loss = torch.tensor(avg_loss).mean()
+            avg_acc1 = torch.tensor(avg_acc1).mean()
+            avg_acc5 = torch.tensor(avg_acc5).mean()
+        else:
+            ws = 1
+            avg_loss = avg_loss_local
+            avg_acc1 = avg_acc1_local
+            avg_acc5 = avg_acc5_local
+
         # Log the aggregated metrics
         self.log('test_loss', avg_loss,sync_dist=True)
-        self.log('test_acc1', avg_top1_acc,sync_dist=True)
-        self.log('test_acc5', avg_top5_acc,sync_dist=True)
-        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
+        self.log('test_acc1', avg_acc1,sync_dist=True)
+        self.log('test_acc5', avg_acc5,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
 
 
     def configure_optimizers(self):
@@ -655,15 +672,32 @@ class FineTune(pl.LightningModule):
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
-        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
+        avg_loss_local = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            avg_loss = [torch.zeros_like(avg_loss) for _ in range(ws)]
+            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
+            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
+            dist.all_gather(avg_loss,avg_loss_local,async_op=False)
+            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
+            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
+            avg_loss = torch.tensor(avg_loss).mean()
+            avg_acc1 = torch.tensor(avg_acc1).mean()
+            avg_acc5 = torch.tensor(avg_acc5).mean()
+        else:
+            ws = 1
+            avg_loss = avg_loss_local
+            avg_acc1 = avg_acc1_local
+            avg_acc5 = avg_acc5_local
+
         # Log the aggregated metrics
         self.log('test_loss', avg_loss,sync_dist=True)
-        self.log('test_acc1', avg_top1_acc,sync_dist=True)
-        self.log('test_acc5', avg_top5_acc,sync_dist=True)
-        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
+        self.log('test_acc1', avg_acc1,sync_dist=True)
+        self.log('test_acc5', avg_acc5,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
 
 
     def configure_optimizers(self):
@@ -752,3 +786,201 @@ def train_finetune(
     finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
     return finetune_model
        
+#########################################################
+#  KNN(K neareast neighbour)
+#########################################################
+# This class is used to test the pre-trained representation
+# no training step,only predict and test steps
+class KNN(pl.LightningModule):
+    def __init__(self,backbone:torch.nn.Module,k_nbrs:int):
+        super().__init__()
+        self.save_hyperparameters(ignore=['backbone'])
+        self.backbone = backbone
+        self.backbone.remove_projection_head()
+        self.k = k_nbrs
+        self.features_local = []
+        self.labels_local = []
+        self.features  = None
+        self.labels = None
+        self.test_step_outputs = []
+        self.train_epoch_loss = []
+        self.test_acc1 = 0.0
+        self.test_acc5 = 0.0
+    
+    def forward(self, x):
+        # Extract features from the frozen backbone
+        # Do NOT freeze backbone with nograd
+        features = self.backbone(x)
+        return self.linear_net(features)
+    def on_fit_start(self):
+        if not self.backbone:
+            raise Exception("need to set the backbone before training or validating")
+    @torch.no_grad()    
+    def predict_step(self, batch, batch_idx):
+        imgs,labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)
+        features =  self.forward(imgs)   
+        self.features_local.append(features)
+        self.labels_local.append(labels)
+        return features
+    
+    def on_test_start(self):
+        features_local = torch.cat(self.features_local,dim=0)
+        labels_local = torch.cat(self.labels_local,dim=0)
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size()
+            features_list = [torch.zeros_like(features_local) for _ in range(ws)]
+            labels_list = [torch.zeros_like(labels_local) for _ in range(ws)]
+            dist.all_gather(features_list,features_local,async_op=False)
+            dist.all_gather(labels_list,labels_local,async_op=False)
+            self.features = torch.cat(features_list,dim=0)
+            self.labels = torch.cat(labels_list,dim=0)
+        else:
+            self.features = features_local
+            self.labels = labels_local
+        return super().on_test_start()
+    
+    def test_step(self, batch, batch_idx):
+        # Unpack the batch (input data and labels)
+        imgs, labels = batch
+        imgs = torch.cat(imgs,dim=0)
+        labels = torch.cat(labels,dim=0)  
+        # shape of preds:[B,O]
+        preds = self.forward(imgs)
+        # shape of features = [N,O], diff: [B,N,O], 
+        diff = preds[:,None,:] - self.features[None,:,:]
+        # shape of distance =[B,N]
+        distance = torch.sum(diff**2,dim=-1)
+        # shape of indices = [B,k]
+        indices = torch.topk(-distance,self.k)
+        # for create labels of the nearest neighbour, (B,k)
+        nbr_labels = torch.cat([self.labels[indices[i,:]] for i in range(indices.shape[0])],dim=0)
+        pred_labels,_ = torch.mode(nbr_labels)
+        # Compute accuracy
+        # Calculate top-1 accuracy
+        acc1 = (logits.argmax(dim=1) == labels).float().mean()
+        
+        # Calculate top-5 accuracy
+        top5 = torch.topk(logits, k=5, dim=1).indices
+        acc5 = (top5 == labels.view(-1, 1)).float().sum(dim=1).mean()
+
+        # Log the test loss and accuracy
+        self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
+        self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+    
+    def on_validation_epoch_end(self):
+        val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
+        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        return super().on_validation_epoch_end()
+
+
+    def on_train_epoch_end(self):
+        # `outputs` is a list of losses from each batch returned by training_step()
+        avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
+        # Save epoch loss for future reference
+        self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
+        # refresh the iteration loss at the end of every epoch
+        self.train_step_outputs = []
+        # Save epoch loss for future reference
+        self.train_epoch_loss.append(avg_loss.item())
+    
+    def on_test_epoch_end(self):
+        # Aggregate the losses and accuracies for the entire test set
+        avg_loss_local = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
+        
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+            avg_loss = [torch.zeros_like(avg_loss) for _ in range(ws)]
+            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
+            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
+            dist.all_gather(avg_loss,avg_loss_local,async_op=False)
+            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
+            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
+            avg_loss = torch.tensor(avg_loss).mean()
+            avg_acc1 = torch.tensor(avg_acc1).mean()
+            avg_acc5 = torch.tensor(avg_acc5).mean()
+        else:
+            ws = 1
+            avg_loss = avg_loss_local
+            avg_acc1 = avg_acc1_local
+            avg_acc5 = avg_acc5_local
+
+        # Log the aggregated metrics
+        self.log('test_loss', avg_loss,sync_dist=True)
+        self.log('test_acc1', avg_acc1,sync_dist=True)
+        self.log('test_acc5', avg_acc5,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
+
+
+def train_finetune(
+            finetune_model:pl.LightningModule,
+            train_loader: torch.utils.data.DataLoader,
+            test_loader:torch.utils.data.DataLoader,
+            val_loader:torch.utils.data.DataLoader,
+            every_n_epochs:int,
+            max_epochs:int,
+            checkpoint_path:str,
+            num_nodes:int=1,
+            gpus_per_node:int=1,
+            strategy:str = "auto",
+            precision:str="16-true",
+            restart:bool=False,
+            if_profile:bool=False):
+    # Check whether pretrained model exists. If yes, load it and skip training
+    trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
+    last_ckpt = os.path.join(checkpoint_path,'ft-epoch={:d}.ckpt'.format(max_epochs-1))
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+        print(f'Found pretrained model at {trained_filename}, loading...')
+        # Automatically loads the model with the saved hyperparameters
+        # backbone and linear_net are ignored when saving the hyperparameters
+        # loading it by providing them in the constructor
+        # the backbone and linear_net will be updated from the state_dict() after the object is constucted
+        model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
+        return model
+    
+    logger_version = None if restart else 0
+    csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
+    tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
+    trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         logger=[csv_logger,tensorboard_logger],
+                         accelerator="gpu",
+                         devices=gpus_per_node,
+                         num_nodes=num_nodes,
+                         strategy=strategy,
+                         max_epochs=max_epochs,
+                         precision=precision,
+                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                                                mode = "max",
+                                                                dirpath=os.path.join(checkpoint_path),
+                                                                filename = 'best_val'),
+                                    pl.callbacks.ModelCheckpoint(save_top_k = -1,
+                                                                save_last = False,
+                                                                every_n_epochs = every_n_epochs,
+                                                                dirpath=checkpoint_path,
+                                                                filename = "ft-{epoch:d}"),
+                                    pl.callbacks.LearningRateMonitor('epoch')],
+                         profiler="simple" if if_profile else None )
+    trainer.logger._default_hp_metric = False  
+    # continue training
+    ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
+    if ckpt_files and (not restart):
+        print("loading ..." + ckpt_files[0])
+        trainer.fit(finetune_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
+    else:
+        trainer.fit(finetune_model, train_loader,val_loader)
+    test_output = trainer.test(finetune_model,test_loader)
+    result = {"test_loss":test_output[0]["test_loss"],
+              "test_acc1":test_output[0]["test_acc1"],
+              "test_acc5":test_output[0]["test_acc5"]}
+    with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
+        json.dump(result,fs,indent=4)
+    # the backbone and linear_net will be updated to the latest version
+    # since they are registered in the pytorchlightning module
+    # can check this point by print the state_dict() (e.g. key = "net.conv1.weight" in backbone.state_dict() before and after training)
+    finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
+    return finetune_model
