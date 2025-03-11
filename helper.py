@@ -82,6 +82,7 @@ class Config:
             self._set_options(section="LC",config = default_config)
             self._set_options(section="SemiSL",config = default_config)
             self._set_options(section="TL",config = default_config)
+            self._set_options(section="KNN",config = default_config)
         #----------------set the configuration  ----------
         self._set_options(section="INFO",config = config)
         self._set_options(section="DATA",config = config)
@@ -89,7 +90,7 @@ class Config:
         self._set_options(section="LC",config = config)
         self._set_options(section="SemiSL",config = config)
         self._set_options(section="TL",config = config)
-
+        self._set_options(section="KNN",config = default_config)
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
                         "SSL":["batch_size","backbone","use_projection_head",
@@ -240,6 +241,12 @@ class Config:
                 "dataset":"string",
                 "restart_training":"boolean"
             }
+        elif section == "KNN":
+            options_type = {
+                "k_neighbours":"int",
+                "distance_type":"string_list",
+            }
+
         return options_type
     
     def _set_options(self,section:str,config:configparser.ConfigParser):

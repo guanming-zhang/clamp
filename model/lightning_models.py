@@ -14,6 +14,7 @@ import json
 import torch.distributed as dist
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
+
 #####################################################
 #  Memory profiling
 #####################################################
@@ -200,9 +201,9 @@ class CLAP(pl.LightningModule):
         preds -= com
         # normalize the vectors by dividing their standard deviation
         std = torch.sqrt(torch.sum(preds*preds,dim=(0,1))/(preds.shape[0]*preds.shape[1] - 1.0) + 1e-12)
-        if "stdNorm" in self.hparams.loss_name:
+        if "StdNorm" in self.hparams.loss_name:
             preds = preds/std
-        elif "unitNorm" in self.hparams.loss_name:
+        elif "UnitNorm" in self.hparams.loss_name:
             preds = torch.nn.functional.normalize(preds,dim=-1)
         # centers.shape = [(B*ws),O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
@@ -414,7 +415,6 @@ class LinearClassification(pl.LightningModule):
         # Calculate top-5 accuracy
         top5 = torch.topk(logits, k=5, dim=1).indices
         acc5 = (top5 == labels.view(-1, 1)).float().sum(dim=1).mean()
-
         # Log the test loss and accuracy
         self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
@@ -438,32 +438,14 @@ class LinearClassification(pl.LightningModule):
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_loss_local = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
-        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
-        
-        if dist.is_available() and dist.is_initialized():
-            ws = dist.get_world_size() # world size
-            avg_loss = [torch.zeros_like(avg_loss) for _ in range(ws)]
-            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
-            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
-            dist.all_gather(avg_loss,avg_loss_local,async_op=False)
-            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
-            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
-            avg_loss = torch.tensor(avg_loss).mean()
-            avg_acc1 = torch.tensor(avg_acc1).mean()
-            avg_acc5 = torch.tensor(avg_acc5).mean()
-        else:
-            ws = 1
-            avg_loss = avg_loss_local
-            avg_acc1 = avg_acc1_local
-            avg_acc5 = avg_acc5_local
-
+        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         # Log the aggregated metrics
         self.log('test_loss', avg_loss,sync_dist=True)
-        self.log('test_acc1', avg_acc1,sync_dist=True)
-        self.log('test_acc5', avg_acc5,sync_dist=True)
-        return {'test_loss': avg_loss, 'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
+        self.log('test_acc1', avg_top1_acc,sync_dist=True)
+        self.log('test_acc5', avg_top5_acc,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
 
 
     def configure_optimizers(self):
@@ -639,7 +621,6 @@ class FineTune(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         logits = self.forward(imgs)
         loss = F.cross_entropy(logits, labels)
-
         # Compute accuracy
         # Calculate top-1 accuracy
         acc1 = (logits.argmax(dim=1) == labels).float().mean()
@@ -672,32 +653,15 @@ class FineTune(pl.LightningModule):
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_loss_local = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
-        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
-        
-        if dist.is_available() and dist.is_initialized():
-            ws = dist.get_world_size() # world size
-            avg_loss = [torch.zeros_like(avg_loss) for _ in range(ws)]
-            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
-            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
-            dist.all_gather(avg_loss,avg_loss_local,async_op=False)
-            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
-            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
-            avg_loss = torch.tensor(avg_loss).mean()
-            avg_acc1 = torch.tensor(avg_acc1).mean()
-            avg_acc5 = torch.tensor(avg_acc5).mean()
-        else:
-            ws = 1
-            avg_loss = avg_loss_local
-            avg_acc1 = avg_acc1_local
-            avg_acc5 = avg_acc5_local
-
+        avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
+        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
+        print("# of batches in the test = {} !!!!!!!!!!!!!!!!!!!!!".format(len(self.test_step_outputs)))
         # Log the aggregated metrics
         self.log('test_loss', avg_loss,sync_dist=True)
-        self.log('test_acc1', avg_acc1,sync_dist=True)
-        self.log('test_acc5', avg_acc5,sync_dist=True)
-        return {'test_loss': avg_loss, 'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
+        self.log('test_acc1', avg_top1_acc,sync_dist=True)
+        self.log('test_acc5', avg_top5_acc,sync_dist=True)
+        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
 
 
     def configure_optimizers(self):
@@ -786,6 +750,7 @@ def train_finetune(
     finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
     return finetune_model
        
+       
 #########################################################
 #  KNN(K neareast neighbour)
 #########################################################
@@ -840,6 +805,8 @@ class KNN(pl.LightningModule):
         else:
             self.features = features_local
             self.labels = labels_local
+        if self.dist_type =="cosine":
+            self.features = F.normalize(self.features,dim=-1)
         return super().on_test_start()
     
     def test_step(self, batch, batch_idx):
@@ -849,10 +816,14 @@ class KNN(pl.LightningModule):
         test_labels = torch.cat(labels,dim=0)  
         # shape of preds:[B,O]
         preds = self.forward(imgs)
-        # shape of features = [N,O], diff: [B,N,O], 
-        diff = preds[:,None,:] - self.features[None,:,:]
-        # shape of distance =[B,N]
-        distance = torch.sum(diff**2,dim=-1)
+        if self.dist_type == "euclidean":
+            # shape of features = [N,O], diff: [B,N,O], 
+            diff = preds[:,None,:] - self.features[None,:,:]
+            # shape of distance =[B,N]
+            distance = torch.sum(diff**2,dim=-1)
+        elif self.dist_type == "cosine":
+            preds = F.normalize(preds,dim=-1)
+            distance = torch.matmul(preds,self.features.t())
         # shape of indices = [B,k]
         indices = torch.topk(-distance,self.k)
         # for create labels of the nearest neighbour, (B,k)
@@ -864,40 +835,15 @@ class KNN(pl.LightningModule):
         acc1 /= test_labels.shape[0]
         acc5 /= test_labels.shape[0]
         self.test_step_outputs.append({'test_acc1': acc1, 'test_acc5':acc5})
-
-    def on_train_epoch_end(self):
-        # `outputs` is a list of losses from each batch returned by training_step()
-        avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
-        # Save epoch loss for future reference
-        # refresh the iteration loss at the end of every epoch
-        self.train_step_outputs = []
-        # Save epoch loss for future reference
-        self.train_epoch_loss.append(avg_loss.item())
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
-        avg_acc1_local = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_acc5_local = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
-        
-        if dist.is_available() and dist.is_initialized():
-            ws = dist.get_world_size() # world size
-            avg_acc1 = [torch.zeros_like(avg_acc1_local) for _ in range(ws)]
-            avg_acc5 = [torch.zeros_like(avg_acc5_local) for _ in range(ws)]
-            dist.all_gather(avg_acc1,avg_acc1_local,async_op=False)
-            dist.all_gather(avg_acc5,avg_acc5_local,async_op=False)
-            avg_loss = torch.tensor(avg_loss).mean()
-            avg_acc1 = torch.tensor(avg_acc1).mean()
-            avg_acc5 = torch.tensor(avg_acc5).mean()
-        else:
-            ws = 1
-            avg_acc1 = avg_acc1_local
-            avg_acc5 = avg_acc5_local
-
+        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
+        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         # Log the aggregated metrics
-        self.log('test_acc1', avg_acc1,sync_dist=True)
-        self.log('test_acc5', avg_acc5,sync_dist=True)
-        return {'test_acc1': avg_acc1, 'test_acc5': avg_acc5}
-
+        self.log('test_acc1', avg_top1_acc,sync_dist=True)
+        self.log('test_acc5', avg_top5_acc,sync_dist=True)
+        return {'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
 
 def train_knn(
             knn_model:pl.LightningModule,
@@ -924,5 +870,3 @@ def train_knn(
               "test_acc5":test_output[0]["test_acc5"]}
     with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
         json.dump(result,fs,indent=4)
-    print("KNN result:")
-    print(result)
