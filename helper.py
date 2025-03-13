@@ -1,17 +1,8 @@
 import torch
 import os
-from model import models
-from model import loss_module
-from utils import data_utils
-import torchvision
-import torch.nn as nn
-from torchvision import transforms
-import torch.utils.data as data
-from torch import optim
 import configparser
 import time
 import json
-from torch.utils.data.distributed import DistributedSampler
 import datetime
 #import pathlib
 #path = pathlib.Path(__file__).parents[1]/"model"
@@ -70,6 +61,7 @@ class Config:
         self.DATA = {}
         self.SSL = {} # self supervised learning
         self.LC = {}  # linear classification
+        self.KNN = {} # k nearest neighbour classification
         self.SemiSL = {}  # finetune(semi-supervised learning)
         self.TL = {}  # transfer learning(freeze backbone)
         
@@ -90,7 +82,7 @@ class Config:
         self._set_options(section="LC",config = config)
         self._set_options(section="SemiSL",config = config)
         self._set_options(section="TL",config = config)
-        self._set_options(section="KNN",config = default_config)
+        self._set_options(section="KNN",config = config)
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
                         "SSL":["batch_size","backbone","use_projection_head",
@@ -244,7 +236,8 @@ class Config:
         elif section == "KNN":
             options_type = {
                 "k_neighbours":"int",
-                "distance_type":"string_list",
+                "batch_size":"int",
+                "distance_type":"string",
             }
 
         return options_type
