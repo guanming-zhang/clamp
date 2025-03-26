@@ -173,6 +173,7 @@ class Config:
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
+            "restart_epochs":"int",
             "n_epochs":"int",
             "save_every_n_epochs":"int",
             "restart_training":"boolean"

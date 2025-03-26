@@ -63,6 +63,7 @@ if __name__ == '__main__':
                                   eta = config.SSL["lars_eta"],
                                   warmup_epochs = config.SSL["warmup_epochs"],
                                   n_epochs = config.SSL["n_epochs"],
+                                  restart_epochs =config.SSL["restart_epochs"],
                                   n_views = config.DATA["n_views"],
                                   batch_size = ssl_batch_size,
                                   lw0 = config.SSL["lw0"],

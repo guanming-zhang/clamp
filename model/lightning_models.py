@@ -5,6 +5,7 @@ import torch.utils.data
 from . import loss_module
 from . import models
 from . import lars
+from . import lr_scheduler
 import torch
 import torch.nn.functional as F 
 import os
@@ -79,8 +80,8 @@ class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
-                 warmup_epochs:int,n_epochs:int,
-                 n_views:int,batch_size:int,lw0:float,lw1:float,lw2:float,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
+                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,
+                 n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         if loss_name == "EllipsoidPackingLoss":
@@ -131,9 +132,12 @@ class CLAP(pl.LightningModule):
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
 
         if self.hparams.scheduler_name == "cosine-warmup":
-            linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.hparams.warmup_epochs)
-            cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
-            scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
+            #linear = optim.lr_scheduler.LinearLR(optimizer,total_iters=self.hparams.warmup_epochs)
+            #cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
+            #scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
+            scheduler = lr_scheduler.LinearWarmupCosineAnnealingLR(optimizer,warmup_epochs=self.hparams.warmup_epochs,max_epochs=self.hparams.n_epochs)
+        elif self.hparams.scheduler_name == "cosine-restart":
+            scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.hparams.restart_epochs)
         elif self.hparams.scheduler_name == "multi_step":
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                     milestones=[int(self.hparams.n_epochs*0.6),
