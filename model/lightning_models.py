@@ -169,20 +169,35 @@ class CLAP(pl.LightningModule):
         self.train_epoch_loss.append(avg_loss.item())
     def on_after_backward(self):
         # Calculate the total gradient norm for all parameters
-        total_norm = 0.0
-        total_grad_norm = 0.0
-        for p in self.parameters():
+        convnet_norm = 0.0
+        convnet_grad_norm = 0.0
+        head_norm = 0.0
+        head_grad_norm = 0.0
+        for p in self.backbone.net.parameters():
             if p.grad is not None:
                 # Calculate the norm for each parameter
                 param_norm = p.data.norm(2)
                 grad_norm = p.grad.data.norm(2)
-                total_grad_norm += grad_norm.item() ** 2
-                total_norm += param_norm.item()**2
-        total_grad_norm = total_grad_norm ** 0.5
-        total_norm = total_norm ** 0.5
+                convnet_grad_norm += grad_norm.item() ** 2
+                convnet_norm += param_norm.item()**2
+        
+        for p in self.backbone.projection_head.parameters():
+            if p.grad is not None:
+                # Calculate the norm for each parameter
+                param_norm = p.data.norm(2)
+                grad_norm = p.grad.data.norm(2)
+                head_grad_norm += grad_norm.item() ** 2
+                head_norm += param_norm.item()**2
+
+        convnet_grad_norm = convnet_grad_norm ** 0.5
+        convnet_norm = convnet_norm ** 0.5
+        head_grad_norm = head_grad_norm ** 0.5
+        head_norm = head_norm ** 0.5
         # Log the gradient norm; this can be viewed in TensorBoard or your logger
-        self.log('grad_norm', total_grad_norm, prog_bar=False)
-        self.log('param_norm', total_norm, prog_bar=False)
+        self.log('convnet_grad_norm', convnet_grad_norm, prog_bar=False)
+        self.log('convnet_param_norm', convnet_norm, prog_bar=False)
+        self.log('head_grad_norm', head_grad_norm, prog_bar=False)
+        self.log('head_param_norm', head_norm, prog_bar=False)
 
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
