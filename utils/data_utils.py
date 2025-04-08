@@ -15,7 +15,7 @@ from albumentations.pytorch import ToTensorV2
 # credit to
 # https://github.com/albumentations-team/autoalbument/blob/master/examples/cifar10/dataset.py
 class Cifar10SearchDataset(datasets.CIFAR10):
-    def __init__(self, root="~/data/cifar10", train=True, download=True, transform=None):
+    def __init__(self, root="./data/cifar10", train=True, download=True, transform=None):
         super().__init__(root=root, train=train, download=download, transform=transform)
 
     def __getitem__(self, index):
@@ -68,7 +68,9 @@ class WrappedDataset(Dataset):
     _train_set, _val_set = torch.utils.data.random_split(dataset, [0.8, 0.2])
     train_set = WrappedDataset(_train_set,transforms.RandomHorizontalFlip(), n_views=3)
     val_set = WrappedDataset(_val_set,transforms.ToTensor())
-    
+    Parameters:
+    dataset: dataset for training/testing
+    transforms: a list of transforms
     If using DataLoader object(denoted as loader) to load it, 
     then for one batch of data, (x,y), 
     x is a list of n_views elements, x[i] is of size batch_size*C*H*W where x[j] is the augmented version of x[i]
@@ -81,22 +83,23 @@ class WrappedDataset(Dataset):
     label is is a 2D list of integers(size = n_views*batch_size element is a 1-tensor)
     The label of image data[i_view][j_img] is label[i_view][j_img]
     '''
-    def __init__(self, dataset, transform=None, n_views = 1, aug_pkg = "torchvision"):
+    def __init__(self, dataset, transforms=None, n_views = 1, aug_pkg = "torchvision"):
         self.dataset = dataset
-        self.transform = transform
+        self.transforms = transforms
+        self.n_trans = len(transforms)
         self.n_views = n_views
         self.aug_pkg = aug_pkg
         if not aug_pkg in ["torchvision","albumentations"]:
             raise NotImplemented("augmentation from package [" + aug_pkg +"] is not implemented")
     def __getitem__(self, index):
         x, y = self.dataset[index]
-        if self.transform and self.aug_pkg == "torchvision":
-            x = [self.transform(x) for i in range(self.n_views)]
+        if self.transforms and self.aug_pkg == "torchvision":
+            x = [self.transforms[i % self.n_trans](x) for i in range(self.n_views)]
             y = [y for i in range(self.n_views)]
-        elif self.transform and self.aug_pkg == "albumentations":
+        elif self.transforms and self.aug_pkg == "albumentations":
             if type(x) is Image.Image:
                 x = np.array(x)
-            x = [self.transform(image=x)["image"] for i in range(self.n_views)]
+            x = [self.transforms[i % self.n_trans](image=x)["image"] for i in range(self.n_views)]
             y = [y for i in range(self.n_views)]
         return x, y
         
@@ -168,7 +171,7 @@ def get_transform(aug_ops:list,aug_params:dict,aug_pkg="torchvision"):
         trans_list = []
         for aug in aug_ops:
             if aug == "RandomResizedCrop":
-                trans_list.append(A.RandomResizedCrop(width=aug_params["crop_size"],height=aug_params["crop_size"],
+                trans_list.append(A.RandomResizedCrop(size=(aug_params["crop_size"],aug_params["crop_size"]),
                                                     scale=(aug_params["crop_min_scale"],
                                                     aug_params["crop_max_scale"])) )
             elif aug == "ColorJitter":
@@ -186,7 +189,7 @@ def get_transform(aug_ops:list,aug_params:dict,aug_pkg="torchvision"):
             elif aug == "RandomHorizontalFlip":
                 trans_list.append(A.HorizontalFlip(p=aug_params["hflip_prob"]))
             elif aug == "RandomSolarize":
-                trans_list.append(A.Solarize(threshold=0.5, p=aug_params["solarize_prob"]))
+                trans_list.append(A.Solarize(p=aug_params["solarize_prob"]))
             elif aug == "ToTensor":
                 trans_list.append(ToTensorV2())
             elif aug == "Normalize":
@@ -221,11 +224,15 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         aug_pkg = "torchvision"
         print("augmantiation method is set to [torchvision]")
         print("[albumentations] only support CIFAR10 or IMAGENET for now")
-
-    if aug_pkg == "torchvision":
-        train_aug_ops = info["augmentations"] + ["ToTensor","Normalize"]
-    else:
-        train_aug_ops = info["augmentations"] + ["Normalize","ToTensor"]
+    # initialize tranformations
+    pretrain_aug_ops = [[] for i in range(info["n_trans"])]
+    pretrain_aug_params = [dict() for i in range(info["n_trans"])] 
+    for i in range(info["n_trans"]):
+        if aug_pkg == "torchvision":
+            pretrain_aug_ops[i] = info["augmentations"] + ["ToTensor","Normalize"]
+        else:
+            pretrain_aug_ops[i] = info["augmentations"] + ["Normalize","ToTensor"]
+    if aug_pkg == "albumentations":
         cv2.setNumThreads(0)
         cv2.ocl.setUseOpenCL(False)
     # the default mean and average are assumed to be natural images such as imagenet 
@@ -243,7 +250,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         test_indices = torch.where(torch.logical_or(test_dataset.targets == 0,test_dataset.targets == 1))
         test_dataset = torch.utils.data.Subset(test_dataset,test_indices[0])
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
-        train_aug_ops = ["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]
+        print("only one tranform is applied for MNIST01 toy model")
+        pretrain_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     if info["dataset"] == "MNIST":
         mean = [0.131,0.131,0.131]
         std = [0.308,0.308,0.308]
@@ -251,7 +259,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
-        train_aug_ops = ["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]
+        print("only one tranform is applied for MNIST toy model")
+        pretrain_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     elif info["dataset"] == "CIFAR10":
         data_dir = "./datasets/cifar10"
         mean = [0.491,0.482,0.446]
@@ -330,28 +339,32 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         
     # create transform for 1) testing 2) training 3)validation
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
-        test_transform = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+        test_transforms = [v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
                                       v2.Lambda(lambda x:x.repeat(3,1,1)),
-                                      v2.Normalize(mean=mean,std=std)])
+                                      v2.Normalize(mean=mean,std=std)])]
     elif standardized_to_imagenet:
-        test_transform = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+        test_transforms = [v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
                                 v2.Normalize(mean=mean,std=std),
                                 v2.Resize(size=256,interpolation=v2.InterpolationMode.BICUBIC),
-                                v2.CenterCrop(size=224)])
+                                v2.CenterCrop(size=224)])]
     else:
-        test_transform = v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
-                                     v2.Normalize(mean=mean,std=std)])
+        test_transforms = [v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
+                                     v2.Normalize(mean=mean,std=std)])]
     # get the transform for training
-    #info.pop("augmentations")
-    info["mean4norm"] = mean
-    info["std4norm"] = std     
-    train_transform = get_transform(train_aug_ops,aug_params=info,aug_pkg=aug_pkg)
-    train_dataset = WrappedDataset(train_dataset,train_transform,n_views = info["n_views"],aug_pkg=aug_pkg)
-    test_dataset = WrappedDataset(test_dataset,test_transform)
+    pretrain_transforms = []
+    for i in range(info["n_trans"]):
+        for k in info:
+            if isinstance(info[k],list) and k!= "augmentations":
+                pretrain_aug_params[i][k] = info[k][i]
+            pretrain_aug_params[i]["mean4norm"] = mean 
+            pretrain_aug_params[i]["std4norm"] = std
+        pretrain_transforms.append(get_transform(pretrain_aug_ops[i],aug_params=pretrain_aug_params[i],aug_pkg=aug_pkg))
+    train_dataset = WrappedDataset(train_dataset,pretrain_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
+    test_dataset = WrappedDataset(test_dataset,test_transforms)
     if augment_val_set:
-        val_dataset = WrappedDataset(val_dataset,train_transform,n_views = info["n_views"],aug_pkg=aug_pkg)
+        val_dataset = WrappedDataset(val_dataset,pretrain_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
     else:
-        val_dataset = WrappedDataset(val_dataset,test_transform,n_views=1)
+        val_dataset = WrappedDataset(val_dataset,test_transforms,n_views=1)
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
                                                num_workers=num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,

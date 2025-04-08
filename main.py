@@ -33,6 +33,7 @@ if __name__ == '__main__':
     # dataset and dataloader
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
     ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"]*config.SSL["grad_accumulation_steps"])
+    # note that standardize_to_imagenet=Flase and augment_val_set = True are recomended
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
                                                                                 num_workers = config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=False,
@@ -98,8 +99,8 @@ if __name__ == '__main__':
     print("---------------LINEAR CLASSIFICATION-------------------------")
     lc_batch_size = config.LC["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     # need to specify the location of the data for imagenet
-    data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
-            "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+    data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+            "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
     if "lc_dataset" in config.LC:
         data_info["dataset"] = config.LC["lc_dataset"]
     # need to specify the location of the data for imagenet
@@ -190,8 +191,8 @@ if __name__ == '__main__':
         else:
             strategy = config.INFO["strategy"]
 
-        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
-            "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+            "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
         # need to specify the location of the data for imagenet
         if "IMAGENET1K" in config.DATA["dataset"]:
             # add the location for imagenet dataset
@@ -239,8 +240,8 @@ if __name__ == '__main__':
         else:
             strategy = config.INFO["strategy"]
         for dataset in ["IMAGENET1K-1percent","IMAGENET1K-10percent"]:
-            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
-                     "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+                     "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
             # add the location for imagenet dataset
             data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
             data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
@@ -329,8 +330,8 @@ if __name__ == '__main__':
         for dataset in ["CIFAR100","FOOD101","FLOWERS102"]:
             tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
             # must apply random cropping to normalize the image size to [224,224]
-            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
-                     "crop_size":config.DATA["crop_size"],"crop_min_scale":0.08,"crop_max_scale":1.0,"hflip_prob":0.5}
+            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+                     "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
             tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"],
                                                                                 prefetch_factor=config.INFO["prefetch_factor"])

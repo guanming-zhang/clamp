@@ -129,22 +129,22 @@ class Config:
             "imagenet_val_dir":"string",
             "augmentations":"string_list",
             "n_views":"int",
-            "batch_size":"int",
+            "n_trans":"int",
             "augmentation_package":"string",
             # for image augmentations
-            "crop_size":"int",
-            "crop_min_scale":"float",
-            "crop_max_scale":"float",
-            "jitter_brightness":"float",
-            "jitter_contrast":"float",
-            "jitter_saturation":"float",
-            "jitter_hue":"float",
-            "jitter_prob":"float",
-            "grayscale_prob":"float",
-            "blur_kernel_size":"int",
-            "blur_prob":"float",
-            "hflip_prob":"float",
-            "solarize_prob":"float"
+            "crop_size":"int_list",
+            "crop_min_scale":"float_list",
+            "crop_max_scale":"float_list",
+            "jitter_brightness":"float_list",
+            "jitter_contrast":"float_list",
+            "jitter_saturation":"float_list",
+            "jitter_hue":"float_list",
+            "jitter_prob":"float_list",
+            "grayscale_prob":"float_list",
+            "blur_kernel_size":"int_list",
+            "blur_prob":"float_list",
+            "hflip_prob":"float_list",
+            "solarize_prob":"float_list"
             }
         elif section == "SSL":
             options_type = {
