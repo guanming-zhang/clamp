@@ -93,6 +93,9 @@ if __name__ == '__main__':
                                         grad_accumulation_steps= config.SSL["grad_accumulation_steps"],
                                         restart = config.LC["restart_training"],
                                         if_profile=config.INFO["if_profile"])
+    backbone_ckpt = os.path.join(ssl_dir,"last_epoch_backbone_" + config.SSL["backbone"] +".ckpt")
+    if not os.path.isfile(backbone_ckpt):
+        torch.save(ssl_model.backbone.net.state_dict(),backbone_ckpt)
     ###################################################
     # linear classification
     ###################################################

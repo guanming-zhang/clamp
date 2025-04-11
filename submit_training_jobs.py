@@ -193,7 +193,7 @@ if __name__ == "__main__":
     jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
     #jm.submit("./simulations/cifar10/resnet18/linear/grid_search1",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
     #jm.continue_prev_submit("./simulations/cifar10/resnet18/linear/grid_search1",{"TIME":"30:55:00","MEM_PER_NODE":"6GB"})
-    jm.submit("./test",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
+    jm.submit("./test",options,{"TIME":"47:55:00","MEM_PER_NODE":"12GB"})
     '''
     ########################################
     # imagenet1k
