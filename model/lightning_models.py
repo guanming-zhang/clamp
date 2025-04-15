@@ -250,7 +250,7 @@ class CLAP(pl.LightningModule):
         activity = torch.sum(num_nbr > 0)/(self.hparams.batch_size*ws)
         mean_radius = torch.mean(radii)
         mean_nbr = torch.mean(num_nbr.float())
-        mean_dist = torch.sum(dist_matrix)/(0.5*self.hparams.batch_size*ws*(self.hparams.batch_size*ws - 1.0))
+        mean_dist = torch.sum(dist_matrix)/(self.hparams.batch_size*ws*(self.hparams.batch_size*ws - 1.0))
         # detect complete collapse and dimensional collapse
         # average std for center points in each direction
         raw_mean_std = torch.mean(std)
@@ -345,7 +345,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
     if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
-        print(f'Found pretrained model at {trained_filename}, loading...')
+        print(f'Found pretrained model at {last_ckpt}, loading...')
         model = CLAP.load_from_checkpoint(last_ckpt)
         return model
     else:
@@ -356,7 +356,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             trainer.fit(model, train_loader,val_loader,ckpt_path=ckpt_files[0])
         else:
             trainer.fit(model, train_loader,val_loader)
-        model = CLAP.load_from_checkpoint(trained_filename) # Load best checkpoint after training
+         # Load last checkpoint after training(best val_acc is just a reference do not load best val_acc here)
+        model = CLAP.load_from_checkpoint(last_ckpt)
     return model
 
 #########################################################
@@ -443,6 +444,7 @@ class LinearClassification(pl.LightningModule):
     def on_validation_epoch_end(self):
         val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
         self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        self.val_step_outputs = []
         return super().on_validation_epoch_end()
 
     def on_train_epoch_end(self):
@@ -566,6 +568,8 @@ def train_lc(linear_model:pl.LightningModule,
         trainer.fit(linear_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:
         trainer.fit(linear_model, train_loader,val_loader)
+    # load the model with the best validation accuracy to avoid overfitting
+    linear_model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Load best checkpoint after training
     test_output = trainer.test(linear_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],
@@ -573,7 +577,7 @@ def train_lc(linear_model:pl.LightningModule,
             }
     with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
         json.dump(result,fs,indent=4)
-    linear_model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Load best checkpoint after training
+    
     return linear_model
 
 #########################################################
@@ -657,6 +661,7 @@ class FineTune(pl.LightningModule):
     def on_validation_epoch_end(self):
         val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
         self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        self.val_step_outputs = []
         return super().on_validation_epoch_end()
 
 
@@ -757,16 +762,17 @@ def train_finetune(
         trainer.fit(finetune_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:
         trainer.fit(finetune_model, train_loader,val_loader)
+    # the backbone and linear_net will be updated to the latest version
+    # since they are registered in the pytorchlightning module
+    # can check this point by print the state_dict() (e.g. key = "net.conv1.weight" in backbone.state_dict() before and after training)
+    finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
     test_output = trainer.test(finetune_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],
               "test_acc5":test_output[0]["test_acc5"]}
     with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
         json.dump(result,fs,indent=4)
-    # the backbone and linear_net will be updated to the latest version
-    # since they are registered in the pytorchlightning module
-    # can check this point by print the state_dict() (e.g. key = "net.conv1.weight" in backbone.state_dict() before and after training)
-    finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
+
     return finetune_model
        
        
