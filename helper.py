@@ -161,6 +161,7 @@ class Config:
             "grad_accumulation_steps":"int",
             "momentum":"float",
             "weight_decay":"float",
+            "scale_weight_decay":"boolean",
             "lars_eta":"float",
             "loss_function":"string",
             "lw0":"float",

@@ -80,8 +80,9 @@ class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
-                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,
-                 n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
+                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,scale_weight_decay:bool=False,
+                 n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
+                 max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         if loss_name == "EllipsoidPackingLoss":
@@ -112,22 +113,28 @@ class CLAP(pl.LightningModule):
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
     def configure_optimizers(self):
+        if self.hparams.scale_weight_decay:
+            weight_decay = self.hparams.weight_decay/self.hparams.lr
+        else:
+            weight_decay = self.hparams.weight_decay
+        print("weight decay = ")
+        print(weight_decay)
         if self.hparams.optim_name == "SGD":
             optimizer = optim.SGD(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=self.hparams.weight_decay,
+                                  weight_decay=weight_decay,
                                   nesterov=True)
         elif self.hparams.optim_name == "Adam":
             optimizer = optim.Adam(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
-                                  weight_decay=self.hparams.weight_decay)
+                                  weight_decay=weight_decay)
         elif self.hparams.optim_name == "LARS":
             optimizer = lars.LARS(params=self.backbone.parameters(),
                                   lr=self.hparams.lr,
                                   trust_coefficient = self.hparams.eta,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=self.hparams.weight_decay)
+                                  weight_decay=weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
 
@@ -223,6 +230,8 @@ class CLAP(pl.LightningModule):
         if "StdNorm" in self.hparams.loss_name:
             preds = preds/std
         elif "UnitNorm" in self.hparams.loss_name:
+            preds = torch.nn.functional.normalize(preds,dim=-1)
+        elif "MMCR" in self.hparams.loss_name:
             preds = torch.nn.functional.normalize(preds,dim=-1)
         # centers.shape = [(B*ws),O] for B*ws ellipsoids
         centers = torch.mean(preds,dim=0)
@@ -370,7 +379,7 @@ class LinearClassification(pl.LightningModule):
                  in_dim:int,out_dim:int,
                  use_batch_norm:bool,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,
-                 n_epochs:int):
+                 n_epochs:int,scale_weight_decay:bool=False):
         super().__init__()
         # do not save the whole neural net as the hyperparameter
         self.save_hyperparameters(ignore=['backbone'])
@@ -680,7 +689,6 @@ class FineTune(pl.LightningModule):
         avg_loss = torch.stack([x['test_loss'] for x in self.test_step_outputs]).mean()
         avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
         avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
-        print("# of batches in the test = {} !!!!!!!!!!!!!!!!!!!!!".format(len(self.test_step_outputs)))
         # Log the aggregated metrics
         self.log('test_loss', avg_loss,sync_dist=True)
         self.log('test_acc1', avg_top1_acc,sync_dist=True)
