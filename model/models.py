@@ -48,7 +48,6 @@ class BackboneNet(torch.nn.Module):
             self._remove_maxpool()
             self._replace_conv1()
 
-    
     def remove_projection_head(self):
         self.projection_head = torch.nn.Identity()
     

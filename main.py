@@ -65,7 +65,7 @@ if __name__ == '__main__':
                                   warmup_epochs = config.SSL["warmup_epochs"],
                                   n_epochs = config.SSL["n_epochs"],
                                   restart_epochs = config.SSL["restart_epochs"],
-                                  scale_weight_decay = config.SSL["scale_weight_decay"], 
+                                  exclude_bn_bias_from_weight_decay = config.SSL["exclude_bn_bias_from_weight_decay"], 
                                   n_views = config.DATA["n_views"],
                                   batch_size = ssl_batch_size,
                                   lw0 = config.SSL["lw0"],

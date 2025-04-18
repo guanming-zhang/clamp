@@ -80,7 +80,7 @@ class CLAP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
-                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,scale_weight_decay:bool=False,
+                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
                  n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
                  max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
@@ -96,6 +96,10 @@ class CLAP(pl.LightningModule):
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
             print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
+        elif loss_name == "LogRepulsiveEllipsoidPackingLossUnitNorm":
+            self.loss_fn = loss_module.LogRepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            print("max_mem_size is dummy for " + loss_name)
+            print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNormMem":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow)
         elif loss_name == "RepulsiveEllipsoidPackingLoss":
@@ -106,35 +110,52 @@ class CLAP(pl.LightningModule):
             self.loss_fn = loss_module.RepulsiveLoss(n_views,batch_size,lw0,lw1,rs)
             print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
+        elif loss_name == "MMCR_Loss":
+            self.loss_fn = loss_module.MMCR_Loss(n_views,batch_size)
         
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         self.val_step_outputs = []
         # all the hyperparameters are added as attributes to this class
         self.save_hyperparameters()
+    def remove_weightdecay_for_bias_and_bn(self):
+        decay = []
+        no_decay = []
+        for name, param in self.backbone.named_parameters():
+            if not param.requires_grad:
+                continue
+            # Exclude bias and batchnorm params(dim=1) from weight decay
+            # see https://github.com/facebookresearch/barlowtwins/blob/main/main.py 
+            # or https://github.com/vturrisi/solo-learn/blob/main/solo/utils/misc.py for references
+            # note that lars normalization is bypassed if weight_decay == 0
+            # see https://lightning-flash.readthedocs.io/en/stable/_modules/flash/core/optimizers/lars.html#LARS
+            # or lars.py for more details
+            if param.ndim == 1:
+                no_decay.append(param)
+            else:
+                decay.append(param)
+
+        return [
+            {'params': decay, 'weight_decay': self.hparams.weight_decay},
+            {'params': no_decay, 'weight_decay': 0.0}]
     def configure_optimizers(self):
-        if self.hparams.scale_weight_decay:
-            weight_decay = self.hparams.weight_decay/self.hparams.lr
+        if self.hparams.exclude_bn_bias_from_weight_decay:
+            param_groups = self.remove_weightdecay_for_bias_and_bn()
         else:
-            weight_decay = self.hparams.weight_decay
-        print("weight decay = ")
-        print(weight_decay)
+            param_groups = self.backbone.parameters()
         if self.hparams.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.backbone.parameters(),
+            optimizer = optim.SGD(params=param_groups,
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
-                                  weight_decay=weight_decay,
                                   nesterov=True)
         elif self.hparams.optim_name == "Adam":
-            optimizer = optim.Adam(params=self.backbone.parameters(),
-                                  lr=self.hparams.lr,
-                                  weight_decay=weight_decay)
+            optimizer = optim.Adam(params=param_groups,
+                                  lr=self.hparams.lr)
         elif self.hparams.optim_name == "LARS":
-            optimizer = lars.LARS(params=self.backbone.parameters(),
+            optimizer = lars.LARS(params=param_groups,
                                   lr=self.hparams.lr,
                                   trust_coefficient = self.hparams.eta,
-                                  momentum=self.hparams.momentum,
-                                  weight_decay=weight_decay)
+                                  momentum=self.hparams.momentum)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
 

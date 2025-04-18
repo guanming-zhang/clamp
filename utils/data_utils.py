@@ -336,6 +336,24 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:num_images_per_class*1000]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+    elif info["dataset"] == "IMAGENET100":
+        train_dir = "./datasets/imagenet100/train.lmdb"
+        val_dir =  "./datasets/imagenet100/val.lmdb"
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        if train_dir.endswith("lmdb") and val_dir.endswith("lmdb"):
+            img_type = "PIL" if aug_pkg=="torchvision" else "Numpy"
+            train_dataset = ImageFolderLMDB(train_dir,img_type=img_type)
+            test_dataset = ImageFolderLMDB(val_dir,img_type=img_type)
+        elif aug_pkg == "albumentations":
+            train_dataset = datasets.ImageFolder(root=train_dir,
+                                                loader = lambda img_path:cv2.cvtColor(cv2.imread(img_path),cv2.COLOR_BGR2RGB))
+            test_dataset = datasets.ImageFolder(root=val_dir,
+                                                loader = lambda img_path:cv2.cvtColor(cv2.imread(img_path),cv2.COLOR_BGR2RGB))
+        elif aug_pkg == "torchvision":
+            train_dataset = datasets.ImageFolder(root=train_dir)
+            test_dataset = datasets.ImageFolder(root=val_dir)
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
         
     # create transform for 1) testing 2) training 3)validation
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
