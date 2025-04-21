@@ -142,7 +142,7 @@ class CLAP(pl.LightningModule):
         if self.hparams.exclude_bn_bias_from_weight_decay:
             param_groups = self.remove_weightdecay_for_bias_and_bn()
         else:
-            param_groups = self.backbone.parameters()
+            param_groups = [{"params":self.backbone.parameters(),'weight_decay': self.hparams.weight_decay}]
         if self.hparams.optim_name == "SGD":
             optimizer = optim.SGD(params=param_groups,
                                   lr=self.hparams.lr,

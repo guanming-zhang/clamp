@@ -353,7 +353,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         elif aug_pkg == "torchvision":
             train_dataset = datasets.ImageFolder(root=train_dir)
             test_dataset = datasets.ImageFolder(root=val_dir)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
         
     # create transform for 1) testing 2) training 3)validation
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
@@ -389,4 +389,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                                               num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
+    if len(train_dataset) < batch_size:
+        print("Train dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
+    if len(val_dataset) < batch_size:
+        print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
+    if len(test_dataset) < batch_size:
+        print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
     return train_loader,test_loader,val_loader
