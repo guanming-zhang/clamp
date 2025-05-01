@@ -225,13 +225,13 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         print("augmantiation method is set to [torchvision]")
         print("[albumentations] only support CIFAR10 or IMAGENET for now")
     # initialize tranformations
-    pretrain_aug_ops = [[] for i in range(info["n_trans"])]
-    pretrain_aug_params = [dict() for i in range(info["n_trans"])] 
+    train_aug_ops = [[] for i in range(info["n_trans"])]
+    train_aug_params = [dict() for i in range(info["n_trans"])] 
     for i in range(info["n_trans"]):
         if aug_pkg == "torchvision":
-            pretrain_aug_ops[i] = info["augmentations"] + ["ToTensor","Normalize"]
+            train_aug_ops[i] = info["augmentations"] + ["ToTensor","Normalize"]
         else:
-            pretrain_aug_ops[i] = info["augmentations"] + ["Normalize","ToTensor"]
+            train_aug_ops[i] = info["augmentations"] + ["Normalize","ToTensor"]
     if aug_pkg == "albumentations":
         cv2.setNumThreads(0)
         cv2.ocl.setUseOpenCL(False)
@@ -251,7 +251,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         test_dataset = torch.utils.data.Subset(test_dataset,test_indices[0])
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST01 toy model")
-        pretrain_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
+        train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     if info["dataset"] == "MNIST":
         mean = [0.131,0.131,0.131]
         std = [0.308,0.308,0.308]
@@ -260,7 +260,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST toy model")
-        pretrain_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
+        train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     elif info["dataset"] == "CIFAR10":
         data_dir = "./datasets/cifar10"
         mean = [0.491,0.482,0.446]
@@ -288,12 +288,17 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         data_dir = "./datasets/food101"
         train_dataset = datasets.Food101(root=data_dir,split="train",download=True)
         test_dataset = datasets.Food101(root=data_dir,split="test",download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.05])
     elif info["dataset"] == "PascalVOC":
         data_dir = "./datasets/pascalvoc"
-        train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",download=True)
-        test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",year=2007,download=True)
+        test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",year=2007,download=True)
+        val_dataset = datasets.VOCDetection(root=data_dir,image_set="val",year=2007,download=True)
+    elif info["dataset"] == "DTD":
+        data_dir = "./datasets/dtd"
+        train_dataset = datasets.DTD(root=data_dir,split="train",download=True)
+        test_dataset = datasets.DTD(root=data_dir,split="test",download=True)
+        val_dataset = datasets.DTD(root=data_dir,split="val",download=True)
     elif info["dataset"] == "IMAGENET1K":
         train_dir = info["imagenet_train_dir"]
         val_dir = info["imagenet_val_dir"]
@@ -331,10 +336,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             train_dataset = datasets.ImageFolder(root=train_dir)
             test_dataset = datasets.ImageFolder(root=val_dir)
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-        num_images_per_class = 1280*percentage // 100
+        num_images_per_class = 1280*percentage / 100
         num_samples = len(train_dataset)
         # draw subset_ratio shuffled indices 
-        indices = torch.randperm(num_samples)[:num_images_per_class*1000]
+        indices = torch.randperm(num_samples)[:int(num_images_per_class*1000 + 0.5)]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
     elif info["dataset"] == "IMAGENET100":
         train_dir = "./datasets/imagenet100/train.lmdb"
@@ -369,18 +374,19 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         test_transforms = [v2.Compose([v2.ToImage(),v2.ToDtype(torch.float32,scale=True),
                                      v2.Normalize(mean=mean,std=std)])]
     # get the transform for training
-    pretrain_transforms = []
+    train_transforms = []
     for i in range(info["n_trans"]):
         for k in info:
             if isinstance(info[k],list) and k!= "augmentations":
-                pretrain_aug_params[i][k] = info[k][i]
-            pretrain_aug_params[i]["mean4norm"] = mean 
-            pretrain_aug_params[i]["std4norm"] = std
-        pretrain_transforms.append(get_transform(pretrain_aug_ops[i],aug_params=pretrain_aug_params[i],aug_pkg=aug_pkg))
-    train_dataset = WrappedDataset(train_dataset,pretrain_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
+                train_aug_params[i][k] = info[k][i]
+            train_aug_params[i]["mean4norm"] = mean 
+            train_aug_params[i]["std4norm"] = std
+        train_transforms.append(get_transform(train_aug_ops[i],aug_params=train_aug_params[i],aug_pkg=aug_pkg))
+    print(train_aug_params)
+    train_dataset = WrappedDataset(train_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
     test_dataset = WrappedDataset(test_dataset,test_transforms)
     if augment_val_set:
-        val_dataset = WrappedDataset(val_dataset,pretrain_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
+        val_dataset = WrappedDataset(val_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
     else:
         val_dataset = WrappedDataset(val_dataset,test_transforms,n_views=1)
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,

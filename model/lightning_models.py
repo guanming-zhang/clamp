@@ -374,7 +374,7 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(last_ckpt) and (not restart):
         print(f'Found pretrained model at {last_ckpt}, loading...')
         model = CLAP.load_from_checkpoint(last_ckpt)
         return model

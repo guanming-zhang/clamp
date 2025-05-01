@@ -277,17 +277,13 @@ if __name__ == '__main__':
                 # convert batch norm to sync batch norm
                 if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
                     ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
-                # load the best linear classifier from the checkpoint
-                with open(os.path.join(lc_dir,"results.json")) as f:
-                    results = json.load(f)
-                    best_lc_dir = results["best_model_dir"] 
-                # load the linear classifier from the checkpoint
-                lc_model = lightning_models.LinearClassification.load_from_checkpoint(os.path.join(best_lc_dir,"best_val.ckpt"),backbone = ssl_model.backbone)
+                #initialize a new linear net 
+                linear_net = torch.nn.Linear(2048,1000)
                 # convert batch norm to sync batch norm if ddp
                 if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
                     lc_model.linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lc_model.linear_net)  
                 semisl_model = lightning_models.FineTune(backbone = ssl_model.backbone,
-                                                        linear_net= lc_model.linear_net,
+                                                        linear_net= linear_net,
                                                         optim_name = config.SemiSL["optimizer"],
                                                         lr = semisl_lr, 
                                                         momentum = config.SemiSL["momentum"],
@@ -326,17 +322,19 @@ if __name__ == '__main__':
         print("---------------TRANSFER LEARNING --------------------------")
         tl_output_dim = {"CIFAR100":100,
                         "FOOD101":101,
-                        "FLOWERS102":102}
+                        "FLOWERS102":102,
+                        "DTD":47,
+                        "PascalVOC":20}
         if config.INFO["strategy"] == "ddp":
             strategy = "ddp_find_unused_parameters_true"
         else:
             strategy = config.INFO["strategy"]
-        for dataset in ["CIFAR100","FOOD101","FLOWERS102"]:
+        for dataset in ["CIFAR100","FOOD101","FLOWERS102","DTD","PascalVOC"]:
             tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
             # must apply random cropping to normalize the image size to [224,224]
-            data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
+            data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
                      "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
-            tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,lc_batch_size,num_workers=config.INFO["cpus_per_gpu"],
+            tl_train_loader,tl_test_loader,tl_val_loader = data_utils.get_dataloader(data_info,tl_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                                 standardized_to_imagenet=config.TL["standardize_to_imagenet"],
                                                                                 prefetch_factor=config.INFO["prefetch_factor"])
             tl_dir = os.path.join(config.loc,"tl-"+dataset)
