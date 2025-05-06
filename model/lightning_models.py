@@ -619,7 +619,7 @@ def train_lc(linear_model:pl.LightningModule,
 class FineTune(pl.LightningModule):
     def __init__(self,backbone:torch.nn.Module,
                  linear_net:torch.nn.Module,
-                 optim_name:str,lr:float,momentum:float,weight_decay:float,
+                 optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,
                  n_epochs:int):
         super().__init__()
         self.save_hyperparameters(ignore=['backbone','linear_net'])
@@ -716,24 +716,29 @@ class FineTune(pl.LightningModule):
         self.log('test_acc5', avg_top5_acc,sync_dist=True)
         return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
 
-
     def configure_optimizers(self):
-        # Need to use list(self.backbone.parameters()) + list(self.linear_net.parameters()),
-        # to optimize the parameters from both networks
         if self.hparams.optim_name == "SGD":
-            optimizer = optim.SGD(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+            optimizer = optim.SGD(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
         elif self.hparams.optim_name == "Adam":
-            optimizer = optim.Adam(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
+            optimizer = optim.Adam(params=self.linear_net.parameters(),
                                   lr=self.hparams.lr,
                                   weight_decay=self.hparams.weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")
-
-        return [optimizer]
+        if self.hparams.scheduler_name == "cosine":
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
+        elif self.hparams.scheduler_name == "multi_step":
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                                    milestones=[int(self.hparams.n_epochs*0.6),
+                                                                int(self.hparams.n_epochs*0.8)],
+                                                    gamma=0.1)
+        else:
+            return [optimizer]
+        return [optimizer],[scheduler]
 
 def train_finetune(
             finetune_model:pl.LightningModule,

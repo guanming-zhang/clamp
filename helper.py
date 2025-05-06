@@ -210,6 +210,7 @@ class Config:
                 "lr":"float",
                 "lr_scale":"string",
                 "lr_sweep":"float_list",
+                "lr_scheduler":"string",
                 "momentum":"float",
                 "weight_decay":"float",
                 "n_epochs":"int",

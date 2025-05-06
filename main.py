@@ -286,6 +286,7 @@ if __name__ == '__main__':
                                                         linear_net= linear_net,
                                                         optim_name = config.SemiSL["optimizer"],
                                                         lr = semisl_lr, 
+                                                        scheduler_name= config.SemiSL["lr_scheduler"],
                                                         momentum = config.SemiSL["momentum"],
                                                         weight_decay = config.SemiSL["weight_decay"],
                                                         n_epochs = config.SemiSL["n_epochs"])
