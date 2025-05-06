@@ -271,31 +271,43 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         else:
             train_dataset = Cifar10SearchDataset(root=data_dir, train=True,download=True)
             test_dataset = Cifar10SearchDataset(root=data_dir, train=False,download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
     elif info["dataset"] == "CIFAR100":
         data_dir = "./datasets/cifar100"
         mean = [0.5071, 0.4867, 0.4408]
         std = [0.2675, 0.2565, 0.2761]
         train_dataset = datasets.CIFAR100(root=data_dir, train=True,download=True)
         test_dataset = datasets.CIFAR100(root=data_dir, train=False,download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
     elif info["dataset"] == "FLOWERS102":
         data_dir = "./datasets/flower102"
+        # use std and mean for imagenet for transfer learning datasets
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
         train_dataset = datasets.Flowers102(root=data_dir,split="train",download=True)
         test_dataset = datasets.Flowers102(root=data_dir,split="test",download=True)
         val_dataset = datasets.Flowers102(root=data_dir,split="val",download=True)
     elif info["dataset"] == "FOOD101":
         data_dir = "./datasets/food101"
+        # use std and mean for imagenet for transfer learning datasets
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
         train_dataset = datasets.Food101(root=data_dir,split="train",download=True)
         test_dataset = datasets.Food101(root=data_dir,split="test",download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.05])
-    elif info["dataset"] == "PascalVOC":
-        data_dir = "./datasets/pascalvoc"
-        train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",year=2007,download=True)
-        test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",year=2007,download=True)
-        val_dataset = datasets.VOCDetection(root=data_dir,image_set="val",year=2007,download=True)
+        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+    #elif info["dataset"] == "PascalVOC":
+    #    data_dir = "./datasets/pascalvoc"
+    #    # use std and mean for imagenet for transfer learning datasets
+    #    mean=[0.485, 0.456, 0.406]
+    #    std=[0.229, 0.224, 0.225]
+    #    train_dataset = datasets.VOCDetection(root=data_dir,image_set="train",year="2007",download=True)
+    #    test_dataset = datasets.VOCDetection(root=data_dir,image_set="test",year="2007",download=True)
+    #    val_dataset = datasets.VOCDetection(root=data_dir,image_set="val",year="2007",download=True)
     elif info["dataset"] == "DTD":
         data_dir = "./datasets/dtd"
+        # use std and mean for imagenet for transfer learning datasets
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
         train_dataset = datasets.DTD(root=data_dir,split="train",download=True)
         test_dataset = datasets.DTD(root=data_dir,split="test",download=True)
         val_dataset = datasets.DTD(root=data_dir,split="val",download=True)
@@ -336,7 +348,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             train_dataset = datasets.ImageFolder(root=train_dir)
             test_dataset = datasets.ImageFolder(root=val_dir)
         train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-        num_images_per_class = 1280*percentage / 100
+        num_images_per_class = 1280*percentage / 100.0
         num_samples = len(train_dataset)
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:int(num_images_per_class*1000 + 0.5)]

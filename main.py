@@ -92,7 +92,7 @@ if __name__ == '__main__':
                                         gpus_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir,
                                         grad_accumulation_steps= config.SSL["grad_accumulation_steps"],
-                                        restart = config.LC["restart_training"],
+                                        restart = config.SSL["restart_training"],
                                         if_profile=config.INFO["if_profile"])
     backbone_ckpt = os.path.join(ssl_dir,"last_epoch_backbone_" + config.SSL["backbone"] +".ckpt")
     if not os.path.isfile(backbone_ckpt):
@@ -281,7 +281,7 @@ if __name__ == '__main__':
                 linear_net = torch.nn.Linear(2048,1000)
                 # convert batch norm to sync batch norm if ddp
                 if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
-                    lc_model.linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(lc_model.linear_net)  
+                    linear_net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(linear_net)  
                 semisl_model = lightning_models.FineTune(backbone = ssl_model.backbone,
                                                         linear_net= linear_net,
                                                         optim_name = config.SemiSL["optimizer"],
@@ -291,7 +291,7 @@ if __name__ == '__main__':
                                                         weight_decay = config.SemiSL["weight_decay"],
                                                         n_epochs = config.SemiSL["n_epochs"])
                 semisl_model = lightning_models.train_finetune(finetune_model = semisl_model,
-                                                        train_loader = semisl_test_loader,
+                                                        train_loader = semisl_train_loader,
                                                         test_loader = semisl_test_loader,
                                                         val_loader = semisl_val_loader,
                                                         max_epochs = config.SemiSL["n_epochs"],
@@ -324,13 +324,12 @@ if __name__ == '__main__':
         tl_output_dim = {"CIFAR100":100,
                         "FOOD101":101,
                         "FLOWERS102":102,
-                        "DTD":47,
-                        "PascalVOC":20}
+                        "DTD":47}
         if config.INFO["strategy"] == "ddp":
             strategy = "ddp_find_unused_parameters_true"
         else:
             strategy = config.INFO["strategy"]
-        for dataset in ["CIFAR100","FOOD101","FLOWERS102","DTD","PascalVOC"]:
+        for dataset in ["CIFAR100","FOOD101","FLOWERS102","DTD"]:
             tl_batch_size = config.TL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
             # must apply random cropping to normalize the image size to [224,224]
             data_info = {"dataset":dataset,"batch_size":tl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],

@@ -718,13 +718,13 @@ class FineTune(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.hparams.optim_name == "SGD":
-            optimizer = optim.SGD(params=self.linear_net.parameters(),
+            optimizer = optim.SGD(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
                                   lr=self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
         elif self.hparams.optim_name == "Adam":
-            optimizer = optim.Adam(params=self.linear_net.parameters(),
+            optimizer = optim.Adam(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
                                   lr=self.hparams.lr,
                                   weight_decay=self.hparams.weight_decay)
         else:
