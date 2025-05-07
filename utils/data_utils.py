@@ -10,6 +10,8 @@ from .lmdb_dataset import ImageFolderLMDB
 import cv2 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import urllib.request
+import os
 # this dataset loads images into numpy array format
 # the default dataset loads images into PIL format
 # credit to
@@ -353,6 +355,35 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         # draw subset_ratio shuffled indices 
         indices = torch.randperm(num_samples)[:int(num_images_per_class*1000 + 0.5)]
         train_dataset = torch.utils.data.Subset(train_dataset, indices=indices)
+    elif info["dataset"] == "IMAGENET1K-simclr-1percent" or info["dataset"] == "IMAGENET1K-simclr-10percent" :
+        percentage = int(re.search(r"IMAGENET1K-simclr-(\d+)percent", info["dataset"]).group(1))  
+        train_dir = info["imagenet_train_dir"]
+        val_dir = info["imagenet_val_dir"]
+        mean= [0.485, 0.456, 0.406]
+        std= [0.229, 0.224, 0.225]
+        if train_dir.endswith("lmdb") and val_dir.endswith("lmdb"):
+            img_type = "PIL" if aug_pkg=="torchvision" else "Numpy"
+            train_dataset = ImageFolderLMDB(train_dir,img_type=img_type)
+            test_dataset = ImageFolderLMDB(val_dir,img_type=img_type)
+            assert "IMAGENET1K-simclr-Xprecent is not supported for lmdb currently" 
+        else:
+            if aug_pkg == "albumentations":
+                train_dataset = datasets.ImageFolder(root=train_dir,
+                                                loader = lambda img_path:cv2.cvtColor(cv2.imread(img_path),cv2.COLOR_BGR2RGB))
+                test_dataset = datasets.ImageFolder(root=val_dir,
+                                                loader = lambda img_path:cv2.cvtColor(cv2.imread(img_path),cv2.COLOR_BGR2RGB))
+            elif aug_pkg == "torchvision":
+                train_dataset = datasets.ImageFolder(root=train_dir)
+                test_dataset = datasets.ImageFolder(root=val_dir)
+            # code taken from https://github.com/facebookresearch/swav/blob/main/eval_semisup.py
+            # take either 1% or 10% of images
+            subset_file = urllib.request.urlopen("https://raw.githubusercontent.com/google-research/simclr/master/imagenet_subsets/" + str(percentage) + "percent.txt")
+            list_imgs = [li.decode("utf-8").split('\n')[0] for li in subset_file]
+            train_dataset.samples = [(
+                os.path.join(train_dir, li.split('_')[0], li),
+                train_dataset.class_to_idx[li.split('_')[0]]
+            ) for li in list_imgs]
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif info["dataset"] == "IMAGENET100":
         train_dir = "./datasets/imagenet100/train.lmdb"
         val_dir =  "./datasets/imagenet100/val.lmdb"

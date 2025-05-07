@@ -243,7 +243,7 @@ if __name__ == '__main__':
             strategy = "ddp_find_unused_parameters_true"
         else:
             strategy = config.INFO["strategy"]
-        for dataset in ["IMAGENET1K-1percent","IMAGENET1K-10percent"]:
+        for dataset in ["IMAGENET1K-simclr-1percent-simclr","IMAGENET1K-simclr-10percent"]:
             data_info = {"dataset":dataset,"batch_size":semisl_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
                      "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
             # add the location for imagenet dataset
@@ -286,6 +286,7 @@ if __name__ == '__main__':
                                                         linear_net= linear_net,
                                                         optim_name = config.SemiSL["optimizer"],
                                                         lr = semisl_lr, 
+                                                        backbone_lr_slowdown= config.SemiSL["backbone_lr_slowdown"],
                                                         scheduler_name= config.SemiSL["lr_scheduler"],
                                                         momentum = config.SemiSL["momentum"],
                                                         weight_decay = config.SemiSL["weight_decay"],
@@ -385,7 +386,7 @@ if __name__ == '__main__':
                                                     max_epochs = config.TL["n_epochs"],
                                                     checkpoint_path = tl_sub_dir,
                                                     precision = config.INFO["precision"],
-                                                    strategy = config.INFO["strategy"],
+                                                    strategy = strategy,
                                                     num_nodes = config.INFO["num_nodes"],
                                                     gpus_per_node = config.INFO["gpus_per_node"],
                                                     restart = config.TL["restart_training"],

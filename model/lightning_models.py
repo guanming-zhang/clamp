@@ -619,7 +619,8 @@ def train_lc(linear_model:pl.LightningModule,
 class FineTune(pl.LightningModule):
     def __init__(self,backbone:torch.nn.Module,
                  linear_net:torch.nn.Module,
-                 optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,
+                 optim_name:str,scheduler_name:str,lr:float,backbone_lr_slowdown:float,momentum:float,
+                 weight_decay:float,
                  n_epochs:int):
         super().__init__()
         self.save_hyperparameters(ignore=['backbone','linear_net'])
@@ -718,14 +719,16 @@ class FineTune(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.hparams.optim_name == "SGD":
-            optimizer = optim.SGD(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
-                                  lr=self.hparams.lr,
+            optimizer = optim.SGD(params=[{"params":self.backbone.parameters(),"lr":self.hparams.backbone_lr_slowdown*self.hparams.lr},
+                                          {"params":self.linear_net.parameters(),"lr":self.hparams.lr}],
+                                  lr = self.hparams.lr,
                                   momentum=self.hparams.momentum,
                                   weight_decay=self.hparams.weight_decay,
                                   nesterov=True)
         elif self.hparams.optim_name == "Adam":
-            optimizer = optim.Adam(params=list(self.backbone.parameters()) + list(self.linear_net.parameters()),
-                                  lr=self.hparams.lr,
+            optimizer = optim.Adam(params=[{"params":self.backbone.parameters(),"lr":self.hparams.backbone_lr_slowdown*self.hparams.lr},
+                                          {"params":self.linear_net.parameters(),"lr":self.hparams.lr}],
+                                  lr = self.hparams.lr,
                                   weight_decay=self.hparams.weight_decay)
         else:
             raise NotImplementedError("optimizer:"+ self.optimizer +" not implemented")

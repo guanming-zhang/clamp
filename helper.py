@@ -211,6 +211,7 @@ class Config:
                 "lr_scale":"string",
                 "lr_sweep":"float_list",
                 "lr_scheduler":"string",
+                "backbone_lr_slowdown":"float",
                 "momentum":"float",
                 "weight_decay":"float",
                 "n_epochs":"int",

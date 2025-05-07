@@ -31,6 +31,8 @@ class ImageFolderLMDB(data.Dataset):
         self.img_type = img_type
         self.transform = transform
         self.target_transform = target_transform
+        # Build class_to_idx map
+        self._build_class_to_idx()
 
     def __getitem__(self, index):
         env = self.env
@@ -70,7 +72,18 @@ class ImageFolderLMDB(data.Dataset):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + self.db_path + ')'
-
+    
+    def _build_class_to_idx(self):
+        labels = set()
+        with self.env.begin(write=False) as txn:
+            for key in self.keys:
+                byteflow = txn.get(key)
+                unpacked = pickle.loads(byteflow)
+                label = unpacked[1]
+                labels.add(label)
+        labels = sorted(labels)  # Ensure deterministic order
+        self.classes = labels
+        self.class_to_idx = {label: idx for idx, label in enumerate(labels)}
 
 def raw_reader(path):
     with open(path, 'rb') as f:
