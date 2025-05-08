@@ -802,7 +802,8 @@ def train_finetune(
     # the backbone and linear_net will be updated to the latest version
     # since they are registered in the pytorchlightning module
     # can check this point by print the state_dict() (e.g. key = "net.conv1.weight" in backbone.state_dict() before and after training)
-    finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
+    if os.path.isfile(trained_filename):
+        finetune_model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
     test_output = trainer.test(finetune_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],
