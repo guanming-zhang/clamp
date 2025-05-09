@@ -375,6 +375,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             elif aug_pkg == "torchvision":
                 train_dataset = datasets.ImageFolder(root=train_dir)
                 test_dataset = datasets.ImageFolder(root=val_dir)
+            _dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+            print("imagenet-simclr subdataset")
+            print("length of valdataset")
+            print(len(val_dataset))
             # code taken from https://github.com/facebookresearch/swav/blob/main/eval_semisup.py
             # take either 1% or 10% of images
             subset_file = urllib.request.urlopen("https://raw.githubusercontent.com/google-research/simclr/master/imagenet_subsets/" + str(percentage) + "percent.txt")
@@ -383,10 +387,13 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                 os.path.join(train_dir, li.split('_')[0], li),
                 train_dataset.class_to_idx[li.split('_')[0]]
             ) for li in list_imgs]
-            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif info["dataset"] == "IMAGENET100":
-        train_dir = "./datasets/imagenet100/train.lmdb"
-        val_dir =  "./datasets/imagenet100/val.lmdb"
+        if "imagenet_train_dir" in info:
+            train_dir = info["imagenet_train_dir"]
+            val_dir = info["imagenet_val_dir"]
+        else:
+            train_dir = "./datasets/imagenet100/train.lmdb"
+            val_dir =  "./datasets/imagenet100/val.lmdb"
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
         if train_dir.endswith("lmdb") and val_dir.endswith("lmdb"):
@@ -425,7 +432,6 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             train_aug_params[i]["mean4norm"] = mean 
             train_aug_params[i]["std4norm"] = std
         train_transforms.append(get_transform(train_aug_ops[i],aug_params=train_aug_params[i],aug_pkg=aug_pkg))
-    print(train_aug_params)
     train_dataset = WrappedDataset(train_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
     test_dataset = WrappedDataset(test_dataset,test_transforms)
     if augment_val_set:
