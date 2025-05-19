@@ -600,14 +600,26 @@ def train_lc(linear_model:pl.LightningModule,
         trainer.fit(linear_model, train_loader,val_loader)
     # load the model with the best validation accuracy to avoid overfitting
     linear_model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Load best checkpoint after training
-    test_output = trainer.test(linear_model,test_loader)
+    #test_output = trainer.test(linear_model,test_loader)
+    #result = {"test_loss":test_output[0]["test_loss"],
+    #          "test_acc1":test_output[0]["test_acc1"],
+    #          "test_acc5":test_output[0]["test_acc5"]
+    #        }
+    
+    single_gpu_trainer = pl.Trainer(default_root_dir=checkpoint_path,
+                         logger = None,
+                         accelerator="gpu",
+                         devices=1,
+                         num_nodes=1,
+                         max_epochs=max_epochs,
+                         precision=precision)
+    test_output = single_gpu_trainer.test(linear_model,test_loader)
     result = {"test_loss":test_output[0]["test_loss"],
               "test_acc1":test_output[0]["test_acc1"],
               "test_acc5":test_output[0]["test_acc5"]
-            }
+    }
     with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
         json.dump(result,fs,indent=4)
-    
     return linear_model
 
 #########################################################

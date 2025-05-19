@@ -99,7 +99,6 @@ class EllipsoidPackingLoss:
         return ll
     
     
-
 class RepulsiveEllipsoidPackingLossStdNorm:
     def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
                  rs:float=2.0,pot_pow:float=2.0,min_margin:float=1e-3):
@@ -367,61 +366,6 @@ class RepulsiveEllipsoidPackingLoss:
         self.record["norm_center"] = torch.linalg.norm(centers,dim=-1).detach()
         return ll
 
-class RepulsiveLoss:
-    def __init__(self,n_views:int,batch_size:int,lw0:float=1.0,lw1:float=1.0,
-                 rs:float=2.0,min_margin:float=1e-3):
-        self.n_views = n_views
-        self.batch_size = batch_size
-        self.rs = rs # scale of radii
-        self.lw0 = lw0 
-        self.lw1 = lw1 # loss weight for the repulsion
-        self.min_margin = min_margin
-        self.hyper_parameters = {"n_views":n_views,"batch_size":batch_size,
-                                "lw1":lw1,"rs":rs,"min_margin":min_margin}
-        self.record = dict()
-    def __call__(self,preds,labels):   
-        # reshape [(V*B),O] shape tensor to shape [V,B,O] 
-        # V-number of views, B-batch size, O-output embedding dim
-        preds_local = torch.reshape(preds,(self.n_views,self.batch_size,preds.shape[-1]))
-        # get the embedings from all the processes(GPUs) if ddp
-        if dist.is_available() and dist.is_initialized():
-            ws = dist.get_world_size() # world size
-            outputs = [torch.zeros_like(preds_local) for _ in range(ws)]
-            dist.all_gather(outputs,preds_local,async_op=False)
-            outputs[dist.get_rank()] = preds_local
-            # preds is now [V,(B*ws),O]
-            preds = torch.cat(outputs,dim=1)
-        else:
-            preds = preds_local
-            ws = 1
-        # preds is [V,B*ws,O] dimesional matrix
-        com = torch.mean(preds,dim=(0,1))
-        # make the center of mass of pres locate at the origin
-        preds -= com
-        # centers.shape = [B*ws,O] for B*ws ellipsoids
-        centers = torch.mean(preds,dim=0)
-        # correlation matrix 
-        preds -= centers
-        # traces[i] = 1/(n-1)*trace(pred[:,i,:]*pred[:,i,:]^T)
-        traces = torch.sum(torch.permute(preds,(1,0,2))**2,dim=(1,2))/(self.n_views -1.0)
-        # average radius for each ellipsoid
-        # trace for each ellipsoids, t = torch.diagonal(corr,dim1=1,dim2=2).sum(dim=1)
-        # t[i] = sum of eigenvalues for ellipsoid i, semi-axial length = sqrt(eigenvalue)
-        # average radii = sqrt(sum of eigenvalues/rank) rank = min(n_views,output_dim) 
-        # average radii.shape = (B,)
-        radii = self.rs*torch.sqrt(traces/min(preds.shape[-1],self.n_views)+ 1e-12)
-        # loss 1: repulsive loss
-        diff = centers[:, None, :] - centers[None, :, :]
-        dist_matrix = torch.sqrt(torch.sum(diff ** 2, dim=-1) + 1e-12)
-        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
-        mask = torch.logical_and(torch.logical_not(self_mask),dist_matrix > self.min_margin)
-        ll = - torch.sum(dist_matrix[mask])*self.lw1
-        # loss 0: minimize the size of each ellipsoids
-        ll += self.lw0*torch.sum(radii)
-        self.record["radii"] =radii.detach()
-        self.record["dist"] = dist_matrix[torch.logical_not(self_mask)].reshape((-1,)).detach()
-        self.record["norm_center"] = torch.linalg.norm(centers,dim=-1).detach()
-        return ll
 
 class MMCR_Loss(torch.nn.Module):
     def __init__(self, n_views: int,batch_size:int):
