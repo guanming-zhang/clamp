@@ -32,7 +32,7 @@ if __name__ == '__main__':
     print("---------------SELF SUPERVISED LEARNING-----------------------")
     # dataset and dataloader
     # for multi-gpu trainning, effective batch size = batch_size*num_gpus
-    ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"]*config.SSL["grad_accumulation_steps"])
+    ssl_batch_size = config.SSL["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
     # note that standardize_to_imagenet=Flase and augment_val_set = True are recomended
     ssl_train_loader,ssl_test_loader,ssl_val_loader = data_utils.get_dataloader(config.DATA,ssl_batch_size,
                                                                                 num_workers = config.INFO["cpus_per_gpu"],
@@ -71,7 +71,6 @@ if __name__ == '__main__':
                                   lw0 = config.SSL["lw0"],
                                   lw1 = config.SSL["lw1"],
                                   lw2 = config.SSL["lw2"],
-                                  max_mem_size= config.SSL["max_mem_size"],
                                   pot_pow = config.SSL["pot_pow"],
                                   rs = config.SSL["rs"])
     if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
@@ -85,13 +84,11 @@ if __name__ == '__main__':
                                         val_loader = ssl_val_loader,
                                         max_epochs=config.SSL["n_epochs"],
                                         every_n_epochs = config.SSL["save_every_n_epochs"],
-                                        max_grad_norm= config.SSL["max_grad_norm"],
                                         precision = config.INFO["precision"],
                                         strategy = config.INFO["strategy"],
                                         num_nodes = config.INFO["num_nodes"],
                                         gpus_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir,
-                                        grad_accumulation_steps= config.SSL["grad_accumulation_steps"],
                                         restart = config.SSL["restart_training"],
                                         if_profile=config.INFO["if_profile"])
     backbone_ckpt = os.path.join(ssl_dir,"last_epoch_backbone_" + config.SSL["backbone"] +".ckpt")

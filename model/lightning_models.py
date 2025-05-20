@@ -82,37 +82,31 @@ class CLAP(pl.LightningModule):
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
                  n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
-                 max_mem_size:int=1024,n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
+                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         if loss_name == "EllipsoidPackingLoss":
             self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
-            print("max_mem_size is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossUnitNorm":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "LogRepulsiveEllipsoidPackingLossUnitNorm":
             self.loss_fn = loss_module.LogRepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
-        elif loss_name == "RepulsiveEllipsoidPackingLossStdNormMem":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNormMem(n_views,batch_size,lw0,lw1,max_mem_size,rs,pot_pow)
         elif loss_name == "RepulsiveEllipsoidPackingLoss":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveLoss":
             self.loss_fn = loss_module.RepulsiveLoss(n_views,batch_size,lw0,lw1,rs)
-            print("max_mem_size is dummy for " + loss_name)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "MMCR_Loss":
             self.loss_fn = loss_module.MMCR_Loss(n_views,batch_size)
-        
+        else:
+            raise ValueError("{} loss function is not implemented".format(loss_name))
+            
         self.train_epoch_loss = []  # To store epoch loss for training
         self.train_step_outputs = []
         self.val_step_outputs = []
@@ -334,8 +328,6 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
-            grad_accumulation_steps:int=1,
-            max_grad_norm:float=0.0,
             num_nodes:int=1,
             gpus_per_node:int=1,
             strategy:str="auto",
@@ -345,13 +337,10 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     logger_version = None if restart else 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
-    if max_grad_norm <= 0.0:
-        max_grad_norm = None
+
     sync_batchnrom = True if gpus_per_node*num_nodes > 1 else False
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
                          logger=[csv_logger, tensorboard_logger],
-                         accumulate_grad_batches=grad_accumulation_steps,
-                         gradient_clip_val=max_grad_norm,
                          accelerator="gpu",
                          devices=gpus_per_node,
                          num_nodes=num_nodes,

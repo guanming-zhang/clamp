@@ -158,7 +158,6 @@ class Config:
             "lr_scale":"string",
             "lr_sweep":"float_list",
             "lr_scheduler":"string",
-            "grad_accumulation_steps":"int",
             "momentum":"float",
             "weight_decay":"float",
             "scale_weight_decay":"boolean",
@@ -170,8 +169,6 @@ class Config:
             "lw2":"float",
             "pot_pow":"float",
             "rs":"float",
-            "max_mem_size":"int",
-            "max_grad_norm":"float",
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
