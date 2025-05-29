@@ -172,10 +172,9 @@ class Config:
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
-            "restart_epochs":"int",
+            "n_restart":"int",
             "n_epochs":"int",
-            "save_every_n_epochs":"int",
-            "restart_training":"boolean"
+            "save_every_n_epochs":"int"
             }
         elif section == "LC":
             options_type = {
@@ -194,7 +193,6 @@ class Config:
             "n_epochs":"int",
             "batch_size":"int",
             "save_every_n_epochs":"int",
-            "restart_training":"boolean",
             "lc_dataset":"string",
             }
         elif section == "SemiSL":
@@ -213,8 +211,7 @@ class Config:
                 "weight_decay":"float",
                 "n_epochs":"int",
                 "batch_size":"int",
-                "save_every_n_epochs":"int",
-                "restart_training":"boolean"
+                "save_every_n_epochs":"int"
             }
         elif section == "TL":
             # transfer learning(freeze the backbone)
@@ -232,8 +229,7 @@ class Config:
                 "n_epochs":"int",
                 "batch_size":"int",
                 "save_every_n_epochs":"int",
-                "dataset":"string",
-                "restart_training":"boolean"
+                "dataset":"string"
             }
         elif section == "KNN":
             options_type = {

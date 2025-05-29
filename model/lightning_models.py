@@ -76,11 +76,11 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 #  Self-supervise learning
 #####################################################
-class CLAP(pl.LightningModule):
+class CLAMP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
-                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
+                 warmup_epochs:int,n_epochs:int,n_restart:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
                  n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
                  n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
@@ -158,8 +158,10 @@ class CLAP(pl.LightningModule):
             #cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
             #scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
             scheduler = lr_scheduler.LinearWarmupCosineAnnealingLR(optimizer,warmup_epochs=self.hparams.warmup_epochs,max_epochs=self.hparams.n_epochs)
-        elif self.hparams.scheduler_name == "cosine-restart":
-            scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.hparams.restart_epochs)
+        elif self.hparams.scheduler_name == "cosine-warmup-restart":
+            scheduler = lr_scheduler.LinearWarmupCosineAnnealingRestartLR(optimizer, warmup_epochs=self.hparams.warmup_epochs,
+                                                                          max_epochs=self.hparams.n_epochs,
+                                                                          n_restart=self.hparams.n_restart)
         elif self.hparams.scheduler_name == "multi_step":
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                     milestones=[int(self.hparams.n_epochs*0.6),
@@ -324,7 +326,7 @@ class CLAP(pl.LightningModule):
                 logger.experiment.add_histogram("norm_center", self.loss_fn.record["norm_center"], self.global_step)
                 logger.experiment.add_histogram("dist", self.loss_fn.record["dist"], self.global_step)
 
-def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
+def train_clamp(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
@@ -332,9 +334,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             gpus_per_node:int=1,
             strategy:str="auto",
             precision:str="16-true",
-            restart:bool=False,
             if_profile:bool=False):
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
 
@@ -363,20 +364,20 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {last_ckpt}, loading...')
-        model = CLAP.load_from_checkpoint(last_ckpt)
+        model = CLAMP.load_from_checkpoint(last_ckpt)
         return model
     else:
         # continue training
         ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-        if ckpt_files and (not restart):
+        if ckpt_files:
             print("loading ...." + ckpt_files[0])
             trainer.fit(model, train_loader,val_loader,ckpt_path=ckpt_files[0])
         else:
             trainer.fit(model, train_loader,val_loader)
          # Load last checkpoint after training(best val_acc is just a reference do not load best val_acc here)
-        model = CLAP.load_from_checkpoint(last_ckpt)
+        model = CLAMP.load_from_checkpoint(last_ckpt)
     return model
 
 #########################################################
@@ -548,16 +549,15 @@ def train_lc(linear_model:pl.LightningModule,
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool = False,
             if_profile:bool = False):
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'lc-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {trained_filename}, loading...')
         model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Automatically loads the model with the saved hyperparameters
         return model
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
@@ -582,7 +582,7 @@ def train_lc(linear_model:pl.LightningModule,
     trainer.logger._default_hp_metric = False 
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if ckpt_files and (not restart):
+    if ckpt_files:
         print("loading ... " + ckpt_files[0])
         trainer.fit(linear_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:
@@ -756,12 +756,11 @@ def train_finetune(
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool=False,
             if_profile:bool=False):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ft-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {trained_filename}, loading...')
         # Automatically loads the model with the saved hyperparameters
         # backbone and linear_net are ignored when saving the hyperparameters
@@ -770,7 +769,7 @@ def train_finetune(
         model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
         return model
     
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
@@ -795,7 +794,7 @@ def train_finetune(
     trainer.logger._default_hp_metric = False  
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if ckpt_files and (not restart):
+    if ckpt_files:
         print("loading ..." + ckpt_files[0])
         trainer.fit(finetune_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:

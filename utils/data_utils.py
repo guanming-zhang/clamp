@@ -442,7 +442,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                                                num_workers=num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                               num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
-    val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
+    # To avoid out of memory problem, we decrease the effective batch size for the validation loader
+    # rule of thumb: In validation batch size = effective batch size * #ranks > 1024, out of memory problem appears due to 
+    # the large difference matrix 
+    val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size // 4,shuffle=False,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     if len(train_dataset) < batch_size:
         print("Train dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
