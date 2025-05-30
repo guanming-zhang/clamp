@@ -237,6 +237,16 @@ class CLAMP(pl.LightningModule):
             preds = torch.cat(outputs,dim=1)
         else:
             ws = 1
+        # We do not perfrom validation if effective batch size > 1024
+        # since it takes too much memory e.g. effective batch size = 2048
+        # the difference matrix takes 2048*2048*512(embedding dim)*16Byte(32 digit float) ~ 32GB
+        if ws*self.hparams.batch_size > 1024:
+            self.val_step_outputs.append({"val_acc":0.0, 
+                                    "val_radius":0.0,
+                                    "val_activity":0.0,
+                                    "val_num_nbr":0.0})
+            return 0.0
+
         ####### measure the validation accuracy by point to cluster distance
         # preds is [V,B*ws,O] dimesional matrix
         com = torch.mean(preds,dim=(0,1))

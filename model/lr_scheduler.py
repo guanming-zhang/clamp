@@ -245,8 +245,6 @@ class LinearWarmupCosineAnnealingRestartLR(_LRScheduler):
         if self.last_epoch == self.warmup_epochs:
             return self.base_lrs
         epoch = (self.last_epoch - 1 - self.warmup_epochs) % self.T
-        if self.last_epoch == 100:
-            print("100!!!!!!!!!!")
         return [
             self.eta_min
             + 0.5
