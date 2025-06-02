@@ -307,6 +307,13 @@ class CLAMP(pl.LightningModule):
         return acc
     
     def on_validation_epoch_end(self):
+        if dist.is_available() and dist.is_initialized():
+            ws = dist.get_world_size() # world size
+        else:
+            ws = 1
+        if ws*self.hparams.batch_size > 1024:
+            self.val_step_outputs = []
+            return
         val_radius =  torch.stack([x["val_radius"] for x in self.val_step_outputs]).mean() 
         val_activity = torch.stack([x["val_activity"] for x in self.val_step_outputs]).mean()
         val_num_nbr = torch.stack([x["val_num_nbr"] for x in self.val_step_outputs]).mean()
