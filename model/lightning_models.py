@@ -312,6 +312,7 @@ class CLAMP(pl.LightningModule):
         else:
             ws = 1
         if ws*self.hparams.batch_size > 1024:
+            self.log('val_acc',0.0,prog_bar=False,sync_dist=True)
             self.val_step_outputs = []
             return
         val_radius =  torch.stack([x["val_radius"] for x in self.val_step_outputs]).mean() 
@@ -366,12 +367,12 @@ def train_clamp(model:pl.LightningModule, train_loader: torch.utils.data.DataLoa
                          precision=precision,
                          strategy=strategy,
                          max_epochs=max_epochs,
-                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
-                                                                mode = "max",
-                                                                dirpath=os.path.join(checkpoint_path),
-                                                                filename = 'best_val'),
+                         callbacks=[#pl.callbacks.ModelCheckpoint(monitor = "val_acc",
+                                    #                            mode = "max",
+                                    #                            dirpath=os.path.join(checkpoint_path),
+                                    #                            filename = 'best_val'),
                                     pl.callbacks.ModelCheckpoint(save_top_k = -1,
-                                                                  save_last = False,
+                                                                  save_last = True,
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
                                                                   filename = "ssl-{epoch:d}"),
@@ -379,7 +380,6 @@ def train_clamp(model:pl.LightningModule, train_loader: torch.utils.data.DataLoa
                          profiler="simple" if if_profile else None)
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists and finished. If yes, load it and skip training
-    trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
     if os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {last_ckpt}, loading...')
