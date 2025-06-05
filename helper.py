@@ -151,6 +151,8 @@ class Config:
             "batch_size":"int",
             "backbone":"string",
             "use_projection_head":"boolean",
+            "use_mementum_encoder":"boolean",
+            "momentum_coefficient":"float",
             "proj_dim":"int_list",
             "proj_out_dim":"int",
             "optimizer":"string",

@@ -13,6 +13,7 @@ import re
 import subprocess
 import json
 import torch.distributed as dist
+import copy
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 
@@ -78,6 +79,7 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 class CLAMP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
+                 use_momentum_encoder:bool,momentum_coeff:float,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,n_restart:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
@@ -85,25 +87,32 @@ class CLAMP(pl.LightningModule):
                  n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
+        # initialize the momentum encoder if needed
+        if use_momentum_encoder:
+            self.momentum_backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
+            self.momentum_backbone.load_state_dict(self.backbone.state_dict())
+            for p in self.momentum_backbone.parameters():
+                p.requires_grad = False
+
         if loss_name == "EllipsoidPackingLoss":
-            self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
+            self.loss_fn = loss_module.EllipsoidPackingLoss(lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
         elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(lw0,lw1,rs,pot_pow)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossUnitNorm":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(lw0,lw1,rs,pot_pow)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "LogRepulsiveEllipsoidPackingLossUnitNorm":
-            self.loss_fn = loss_module.LogRepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            self.loss_fn = loss_module.LogRepulsiveEllipsoidPackingLossUnitNorm(lw0,lw1,rs,pot_pow)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLoss":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow)
+            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(lw0,lw1,rs,pot_pow)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveLoss":
-            self.loss_fn = loss_module.RepulsiveLoss(n_views,batch_size,lw0,lw1,rs)
+            self.loss_fn = loss_module.RepulsiveLoss(lw0,lw1,rs)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "MMCR_Loss":
-            self.loss_fn = loss_module.MMCR_Loss(n_views,batch_size)
+            self.loss_fn = loss_module.MMCR_Loss()
         else:
             raise ValueError("{} loss function is not implemented".format(loss_name))
             
@@ -175,12 +184,25 @@ class CLAMP(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         imgs,labels = batch
         imgs = torch.cat(imgs,dim=0)
+        # preds.shape = [V*B,O]
         preds = self.backbone(imgs)
+        # reshape preds [V,B,O]
+        preds = torch.view(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
+        if self.hparams.use_momentum_encoder:
+            _preds = self.momentum_backbone(imgs)
+            _preds = torch.view(_preds,(self.hparams.n_views,self.hparams.batch_size,_preds.shape[-1]))
+            preds = torch.stack([preds,_preds],dim=0)
         # the labels are dummy since label is not used in ssl
         loss = self.loss_fn(preds,None)
         self.train_step_outputs.append(loss.detach())
         self.log('train_iteration_loss', loss.detach(), prog_bar=True,sync_dist=True)  # Log iteration loss
         self.log_histogram()
+        # momentum update for the encoder
+        if self.hparams.use_momentum_encoder:
+            with torch.no_grad():
+                for p_backbone,p_momentum in zip(self.backbone.parameters(),self.momentum_backbone.parameters()):
+                    p_momentum.data = self.hparams.momentum_coeff*p_momentum.data + (1.0 - self.hparams.momentum_coeff)*p_backbone.data
+            
         return loss
     def on_train_epoch_end(self):
         # measure the norm of the gradient
