@@ -187,11 +187,12 @@ class CLAMP(pl.LightningModule):
         # preds.shape = [V*B,O]
         preds = self.backbone(imgs)
         # reshape preds [V,B,O]
-        preds = torch.view(preds,(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1]))
+        preds = preds.view(self.hparams.n_views,self.hparams.batch_size,preds.shape[-1])
         if self.hparams.use_momentum_encoder:
             _preds = self.momentum_backbone(imgs)
-            _preds = torch.view(_preds,(self.hparams.n_views,self.hparams.batch_size,_preds.shape[-1]))
-            preds = torch.stack([preds,_preds],dim=0)
+            _preds = _preds.view(self.hparams.n_views,self.hparams.batch_size,_preds.shape[-1])
+
+            preds = torch.cat((preds,_preds),dim=0)
         # the labels are dummy since label is not used in ssl
         loss = self.loss_fn(preds,None)
         self.train_step_outputs.append(loss.detach())

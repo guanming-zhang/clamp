@@ -70,7 +70,7 @@ class EllipsoidPackingLoss:
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         nbr_mask = dist_matrix < sum_radii
-        self_mask = torch.eye(self.batch_size,dtype=bool,device=preds.device)
+        self_mask = torch.eye(B,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         if abs(self.lw0) > 1e-6:
@@ -148,7 +148,7 @@ class RepulsiveEllipsoidPackingLossStdNorm:
         #add 1e-6 to avoid dividing by zero
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix > self.min_margin)
-        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
+        self_mask = torch.eye(B*ws,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         # loss 0: minimize the size of each ellipsoids
@@ -214,7 +214,7 @@ class RepulsiveEllipsoidPackingLossUnitNorm:
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         sum_radii = torch.min(sum_radii,self.max_range*torch.ones_like(sum_radii,device=sum_radii.device))
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix > self.min_margin)
-        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
+        self_mask = torch.eye(B*ws,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         # loss 0: minimize the size of each ellipsoids
@@ -378,7 +378,7 @@ class LogRepulsiveEllipsoidPackingLossUnitNorm:
         sum_radii = radii[None,:] + radii[:,None] + 1e-6
         sum_radii = torch.min(sum_radii,self.max_range*torch.ones_like(sum_radii,device=sum_radii.device))
         nbr_mask = torch.logical_and(dist_matrix < sum_radii,dist_matrix > self.min_margin)
-        self_mask = torch.eye(self.batch_size*ws,dtype=bool,device=preds.device)
+        self_mask = torch.eye(B*ws,dtype=bool,device=preds.device)
         mask = torch.logical_and(nbr_mask,torch.logical_not(self_mask))
         ll = 0.5*((1.0 - dist_matrix[mask]/sum_radii[mask])**self.pot_pow).sum()*self.lw1
         # loss 0: minimize the size of each ellipsoids

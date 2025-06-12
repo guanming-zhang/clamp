@@ -50,11 +50,14 @@ if __name__ == '__main__':
         prune_backbone = True
     else:
         prune_backbone = False
+
     ssl_model = lightning_models.CLAMP(backbone_name = config.SSL["backbone"],
                                   prune = prune_backbone,
                                   use_projection_head=config.SSL["use_projection_head"],
                                   proj_dim = config.SSL["proj_dim"],
                                   proj_out_dim = config.SSL["proj_out_dim"],
+                                  use_momentum_encoder = config.SSL["use_momentum_encoder"],
+                                  momentum_coeff = config.SSL["momentum_coefficent"],
                                   loss_name= config.SSL["loss_function"],
                                   optim_name = config.SSL["optimizer"],
                                   lr = ssl_lr,
