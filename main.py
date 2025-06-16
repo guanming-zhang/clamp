@@ -57,7 +57,7 @@ if __name__ == '__main__':
                                   proj_dim = config.SSL["proj_dim"],
                                   proj_out_dim = config.SSL["proj_out_dim"],
                                   use_momentum_encoder = config.SSL["use_momentum_encoder"],
-                                  momentum_coeff = config.SSL["momentum_coefficent"],
+                                  momentum_coeff = config.SSL["momentum_coefficient"],
                                   loss_name= config.SSL["loss_function"],
                                   optim_name = config.SSL["optimizer"],
                                   lr = ssl_lr,
