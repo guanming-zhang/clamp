@@ -164,6 +164,7 @@ class Config:
             "weight_decay":"float",
             "scale_weight_decay":"boolean",
             "exclude_bn_bias_from_weight_decay":"boolean",
+            "skip_validation":"boolean",
             "lars_eta":"float",
             "loss_function":"string",
             "lw0":"float",

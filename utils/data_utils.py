@@ -206,7 +206,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                    standardized_to_imagenet:bool=False,
                    augment_val_set=False,
                    prefetch_factor:int=2,
-                   aug_pkg:str="torchvision"):
+                   aug_pkg:str="torchvision",
+                   skip_validation:bool=False):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -251,7 +252,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         # select 0 and 1 from the test dataset
         test_indices = torch.where(torch.logical_or(test_dataset.targets == 0,test_dataset.targets == 1))
         test_dataset = torch.utils.data.Subset(test_dataset,test_indices[0])
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST01 toy model")
         train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     if info["dataset"] == "MNIST":
@@ -260,7 +262,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST toy model")
         train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     elif info["dataset"] == "CIFAR10":
@@ -273,14 +276,16 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         else:
             train_dataset = Cifar10SearchDataset(root=data_dir, train=True,download=True)
             test_dataset = Cifar10SearchDataset(root=data_dir, train=False,download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
     elif info["dataset"] == "CIFAR100":
         data_dir = "./datasets/cifar100"
         mean = [0.5071, 0.4867, 0.4408]
         std = [0.2675, 0.2565, 0.2761]
         train_dataset = datasets.CIFAR100(root=data_dir, train=True,download=True)
         test_dataset = datasets.CIFAR100(root=data_dir, train=False,download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
     elif info["dataset"] == "FLOWERS102":
         data_dir = "./datasets/flower102"
         # use std and mean for imagenet for transfer learning datasets
@@ -296,7 +301,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         std=[0.229, 0.224, 0.225]
         train_dataset = datasets.Food101(root=data_dir,split="train",download=True)
         test_dataset = datasets.Food101(root=data_dir,split="test",download=True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
     #elif info["dataset"] == "PascalVOC":
     #    data_dir = "./datasets/pascalvoc"
     #    # use std and mean for imagenet for transfer learning datasets
@@ -330,7 +336,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         elif aug_pkg == "torchvision":
             train_dataset = datasets.ImageFolder(root=train_dir)
             test_dataset = datasets.ImageFolder(root=val_dir)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif re.search(r"IMAGENET1K-(\d+)percent", info["dataset"]):
         percentage = int(re.search(r"IMAGENET1K-(\d+)percent", info["dataset"]).group(1))  
         train_dir = info["imagenet_train_dir"]
@@ -375,7 +382,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             elif aug_pkg == "torchvision":
                 train_dataset = datasets.ImageFolder(root=train_dir)
                 test_dataset = datasets.ImageFolder(root=val_dir)
-            _dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
+            if not skip_validation:
+                _dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
             print("imagenet-simclr subdataset")
             print("length of valdataset")
             print(len(val_dataset))
@@ -408,7 +416,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         elif aug_pkg == "torchvision":
             train_dataset = datasets.ImageFolder(root=train_dir)
             test_dataset = datasets.ImageFolder(root=val_dir)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.95,0.05])
         
     # create transform for 1) testing 2) training 3)validation
     if info["dataset"] == "MNIST01" or info["dataset"]=="MNIST":
@@ -434,20 +443,24 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         train_transforms.append(get_transform(train_aug_ops[i],aug_params=train_aug_params[i],aug_pkg=aug_pkg))
     train_dataset = WrappedDataset(train_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
     test_dataset = WrappedDataset(test_dataset,test_transforms)
-    if augment_val_set:
-        val_dataset = WrappedDataset(val_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
-    else:
-        val_dataset = WrappedDataset(val_dataset,test_transforms,n_views=1)
+    if not skip_validation:
+        if augment_val_set:
+            val_dataset = WrappedDataset(val_dataset,train_transforms,n_views = info["n_views"],aug_pkg=aug_pkg)
+        else:
+            val_dataset = WrappedDataset(val_dataset,test_transforms,n_views=1)
     train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
                                                num_workers=num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
     test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                               num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
-    val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
+    if skip_validation:
+        val_loader = None
+    else:
+        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
+        if len(val_dataset) < batch_size:
+            print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
+        if len(test_dataset) < batch_size:
+            print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
     if len(train_dataset) < batch_size:
         print("Train dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
-    if len(val_dataset) < batch_size:
-        print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
-    if len(test_dataset) < batch_size:
-        print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
     return train_loader,test_loader,val_loader

@@ -84,7 +84,7 @@ class CLAMP(pl.LightningModule):
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
                  warmup_epochs:int,n_epochs:int,n_restart:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
                  n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
-                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
+                rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
         # initialize the momentum encoder if needed
@@ -93,10 +93,8 @@ class CLAMP(pl.LightningModule):
             self.momentum_backbone.load_state_dict(self.backbone.state_dict())
             for p in self.momentum_backbone.parameters():
                 p.requires_grad = False
-
-        if loss_name == "EllipsoidPackingLoss":
-            self.loss_fn = loss_module.EllipsoidPackingLoss(lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
-        elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
+                
+        if loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
             self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(lw0,lw1,rs,pot_pow)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "RepulsiveEllipsoidPackingLossUnitNorm":
@@ -247,6 +245,15 @@ class CLAMP(pl.LightningModule):
         self.log('head_param_norm', head_norm, prog_bar=False)
 
     def validation_step(self, batch, batch_idx):
+        #self.val_step_outputs.append({"val_acc":torch.tensor(0.0), 
+        #                            "val_radius":torch.tensor(0.0),
+        #                            "val_dist":torch.tensor(0.0),
+        #                            "val_std":torch.tensor(0.0),
+        #                            "val_raw_std":torch.tensor(0.0),
+        #                            "val_sig_ratio":torch.tensor(0.0),
+        #                            "val_activity":torch.tensor(0.0),
+        #                            "val_num_nbr":torch.tensor(0.0)})
+        #return 0.0
         imgs, labels = batch
         imgs = torch.cat(imgs,dim=0)
         preds = self.backbone(imgs)
@@ -260,16 +267,7 @@ class CLAMP(pl.LightningModule):
             preds = torch.cat(outputs,dim=1)
         else:
             ws = 1
-        # We do not perfrom validation if effective batch size > 1024
-        # since it takes too much memory e.g. effective batch size = 2048
-        # the difference matrix takes 2048*2048*512(embedding dim)*16Byte(32 digit float) ~ 32GB
-        if ws*self.hparams.batch_size > 1024:
-            self.val_step_outputs.append({"val_acc":0.0, 
-                                    "val_radius":0.0,
-                                    "val_activity":0.0,
-                                    "val_num_nbr":0.0})
-            return 0.0
-
+        
         ####### measure the validation accuracy by point to cluster distance
         # preds is [V,B*ws,O] dimesional matrix
         com = torch.mean(preds,dim=(0,1))
@@ -334,10 +332,6 @@ class CLAMP(pl.LightningModule):
             ws = dist.get_world_size() # world size
         else:
             ws = 1
-        if ws*self.hparams.batch_size > 1024:
-            self.log('val_acc',0.0,prog_bar=False,sync_dist=True)
-            self.val_step_outputs = []
-            return
         val_radius =  torch.stack([x["val_radius"] for x in self.val_step_outputs]).mean() 
         val_activity = torch.stack([x["val_activity"] for x in self.val_step_outputs]).mean()
         val_num_nbr = torch.stack([x["val_num_nbr"] for x in self.val_step_outputs]).mean()
@@ -357,7 +351,7 @@ class CLAMP(pl.LightningModule):
         self.val_step_outputs = []
     
     def log_histogram(self):
-        if self.global_step %100 != 0:
+        if self.global_step %200 != 0:
             return 
         if not hasattr(self.loss_fn,"record"):
             return

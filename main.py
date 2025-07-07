@@ -39,7 +39,8 @@ if __name__ == '__main__':
                                                                                 standardized_to_imagenet=False,
                                                                                 augment_val_set = True,
                                                                                 prefetch_factor=config.INFO["prefetch_factor"],
-                                                                                aug_pkg = config.DATA["augmentation_package"])
+                                                                                aug_pkg = config.DATA["augmentation_package"],
+                                                                                skip_validation= config.SSL["skip_validation"])
 
     # setup the self-supervised learning
     if config.SSL["lr_scale"] == "linear":
