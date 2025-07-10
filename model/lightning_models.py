@@ -15,7 +15,7 @@ import json
 import torch.distributed as dist
 import copy
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
-
+import gc
 
 #####################################################
 #  Memory profiling
@@ -212,6 +212,10 @@ class CLAMP(pl.LightningModule):
         self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
+        # garbage collection and clear cache
+        gc.collect()
+        torch.cuda.empty_cache()
+
     def on_after_backward(self):
         # Calculate the total gradient norm for all parameters
         convnet_norm = 0.0
