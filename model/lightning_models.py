@@ -14,6 +14,7 @@ import subprocess
 import json
 import torch.distributed as dist
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
+import gc
 
 
 #####################################################
@@ -76,31 +77,17 @@ def get_top_n_latest_checkpoints(directory, n):
 #####################################################
 #  Self-supervise learning
 #####################################################
-class CLAP(pl.LightningModule):
+class CLAMP(pl.LightningModule):
     def __init__(self,backbone_name:str,prune:bool,use_projection_head:bool,proj_dim:list,proj_out_dim:int,
                  loss_name:str,
                  optim_name:str,scheduler_name:str,lr:float,momentum:float,weight_decay:float,eta:float,
-                 warmup_epochs:int,n_epochs:int,restart_epochs:int=-1,exclude_bn_bias_from_weight_decay:bool=True,
+                 warmup_epochs:int,n_epochs:int,exclude_bn_bias_from_weight_decay:bool=True,
                  n_views:int=4,batch_size:int=256,lw0:float=0.0,lw1:float=1.0,lw2:float=0.0,
-                 n_pow_iter:int=20,rs:float=2.0,pot_pow:float=2.0):
+                 rs:float=2.0,pot_pow:float=2.0):
         super().__init__()
         self.backbone = models.BackboneNet(backbone_name,prune,use_projection_head,proj_dim,proj_out_dim)
-        if loss_name == "EllipsoidPackingLoss":
-            self.loss_fn = loss_module.EllipsoidPackingLoss(n_views,batch_size,lw0,lw1,lw2,n_pow_iter,rs,pot_pow)
-        elif loss_name == "RepulsiveEllipsoidPackingLossStdNorm":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossStdNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("lw2 is dummy for " + loss_name)
-        elif loss_name == "RepulsiveEllipsoidPackingLossUnitNorm":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("lw2 is dummy for " + loss_name)
-        elif loss_name == "LogRepulsiveEllipsoidPackingLossUnitNorm":
+        if loss_name == "LogRepulsiveEllipsoidPackingLossUnitNorm":
             self.loss_fn = loss_module.LogRepulsiveEllipsoidPackingLossUnitNorm(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("lw2 is dummy for " + loss_name)
-        elif loss_name == "RepulsiveEllipsoidPackingLoss":
-            self.loss_fn = loss_module.RepulsiveEllipsoidPackingLoss(n_views,batch_size,lw0,lw1,rs,pot_pow)
-            print("lw2 is dummy for " + loss_name)
-        elif loss_name == "RepulsiveLoss":
-            self.loss_fn = loss_module.RepulsiveLoss(n_views,batch_size,lw0,lw1,rs)
             print("lw2 is dummy for " + loss_name)
         elif loss_name == "MMCR_Loss":
             self.loss_fn = loss_module.MMCR_Loss(n_views,batch_size)
@@ -158,8 +145,6 @@ class CLAP(pl.LightningModule):
             #cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
             #scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
             scheduler = lr_scheduler.LinearWarmupCosineAnnealingLR(optimizer,warmup_epochs=self.hparams.warmup_epochs,max_epochs=self.hparams.n_epochs)
-        elif self.hparams.scheduler_name == "cosine-restart":
-            scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.hparams.restart_epochs)
         elif self.hparams.scheduler_name == "multi_step":
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                     milestones=[int(self.hparams.n_epochs*0.6),
@@ -189,6 +174,9 @@ class CLAP(pl.LightningModule):
         self.train_step_outputs = []
         # Save epoch loss for future reference
         self.train_epoch_loss.append(avg_loss.item())
+        # Garbage collection and empty gpu cache
+        gc.collect()
+        torch.cuda.empty_cache()
     def on_after_backward(self):
         # Calculate the total gradient norm for all parameters
         convnet_norm = 0.0
@@ -324,7 +312,7 @@ class CLAP(pl.LightningModule):
                 logger.experiment.add_histogram("norm_center", self.loss_fn.record["norm_center"], self.global_step)
                 logger.experiment.add_histogram("dist", self.loss_fn.record["dist"], self.global_step)
 
-def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
+def train_clamp(model:pl.LightningModule, train_loader: torch.utils.data.DataLoader,
             val_loader:torch.utils.data.DataLoader,
             max_epochs:int,every_n_epochs:int,
             checkpoint_path:str,
@@ -332,9 +320,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
             gpus_per_node:int=1,
             strategy:str="auto",
             precision:str="16-true",
-            restart:bool=False,
             if_profile:bool=False):
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
 
@@ -348,12 +335,8 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
                          precision=precision,
                          strategy=strategy,
                          max_epochs=max_epochs,
-                         callbacks=[pl.callbacks.ModelCheckpoint(monitor = "val_acc",
-                                                                mode = "max",
-                                                                dirpath=os.path.join(checkpoint_path),
-                                                                filename = 'best_val'),
-                                    pl.callbacks.ModelCheckpoint(save_top_k = -1,
-                                                                  save_last = False,
+                         callbacks=[pl.callbacks.ModelCheckpoint(save_top_k = -1,
+                                                                  save_last = True,
                                                                   every_n_epochs = every_n_epochs,
                                                                   dirpath=checkpoint_path,
                                                                   filename = "ssl-{epoch:d}"),
@@ -363,20 +346,20 @@ def train_clap(model:pl.LightningModule, train_loader: torch.utils.data.DataLoad
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {last_ckpt}, loading...')
-        model = CLAP.load_from_checkpoint(last_ckpt)
+        model = CLAMP.load_from_checkpoint(last_ckpt)
         return model
     else:
         # continue training
         ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-        if ckpt_files and (not restart):
+        if ckpt_files:
             print("loading ...." + ckpt_files[0])
             trainer.fit(model, train_loader,val_loader,ckpt_path=ckpt_files[0])
         else:
             trainer.fit(model, train_loader,val_loader)
          # Load last checkpoint after training(best val_acc is just a reference do not load best val_acc here)
-        model = CLAP.load_from_checkpoint(last_ckpt)
+        model = CLAMP.load_from_checkpoint(last_ckpt)
     return model
 
 #########################################################
@@ -436,7 +419,7 @@ class LinearClassification(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.val_step_outputs.append(acc)
+        self.val_step_outputs.append(acc.detach())
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -474,7 +457,9 @@ class LinearClassification(pl.LightningModule):
         # refresh the iteration loss at the end of every epoch
         self.train_step_outputs = []
         # Save epoch loss for future reference
-        self.train_epoch_loss.append(avg_loss.item())
+        self.train_epoch_loss.append(avg_loss.detach().item())
+        gc.collect()
+        torch.cuda.empty_cache()
     
     def on_test_epoch_end(self):
         # Aggregate the losses and accuracies for the entire test set
@@ -482,10 +467,10 @@ class LinearClassification(pl.LightningModule):
         avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
         avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
         # Log the aggregated metrics
-        self.log('test_loss', avg_loss,sync_dist=True)
-        self.log('test_acc1', avg_top1_acc,sync_dist=True)
-        self.log('test_acc5', avg_top5_acc,sync_dist=True)
-        return {'test_loss': avg_loss, 'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
+        self.log('test_loss', avg_loss.detach(),sync_dist=True)
+        self.log('test_acc1', avg_top1_acc.detach(),sync_dist=True)
+        self.log('test_acc5', avg_top5_acc.detach(),sync_dist=True)
+        return {'test_loss': avg_loss.detach(), 'test_acc1': avg_top1_acc.detach(), 'test_acc5': avg_top5_acc.detach()}
 
 
     def configure_optimizers(self):
@@ -511,31 +496,6 @@ class LinearClassification(pl.LightningModule):
         else:
             return [optimizer]
         return [optimizer],[scheduler]
-    '''
-    def reset_optimizer_scheduler(self,optimizer = None,scheduler = None):
-        # Reinitialize both optimizer and scheduler by calling configure_optimizers
-        if optimizer and scheduler:
-            self.optimizers = optimizer
-            self.schedulers = scheduler
-        else:
-            optimizers, schedulers = self.configure_optimizers()
-            self.optimizers = optimizers
-            self.schedulers = schedulers
-
-    def state_dict(self):
-        # override the default state dict to avoid saving the backbone
-        return {
-            'model_state_dict': self.linear_net.state_dict(),
-            'optimizer_state_dict': self.optimizers().state_dict(),
-            'scheduler_state_dict': self.lr_schedulers().state_dict() 
-        }
-
-    def load_from_customized_checkpoint(self,path:str):
-        state_dict = torch.load(path,weights_only=True)["state_dict"]
-        self.linear_net.load_state_dict(state_dict['model_state_dict'])
-        self.optimizers().load_state_dict(state_dict['optimizer_state_dict'])
-        self.lr_schedulers().load_state_dict(state_dict['scheduler_state_dict'])
-    '''
 
 def train_lc(linear_model:pl.LightningModule,
             train_loader: torch.utils.data.DataLoader,
@@ -548,16 +508,15 @@ def train_lc(linear_model:pl.LightningModule,
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool = False,
             if_profile:bool = False):
     # Check whether pretrained model exists and finished. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'lc-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {trained_filename}, loading...')
         model = LinearClassification.load_from_checkpoint(trained_filename,backbone = linear_model.backbone) # Automatically loads the model with the saved hyperparameters
         return model
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
@@ -582,7 +541,7 @@ def train_lc(linear_model:pl.LightningModule,
     trainer.logger._default_hp_metric = False 
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if ckpt_files and (not restart):
+    if ckpt_files:
         print("loading ... " + ckpt_files[0])
         trainer.fit(linear_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:
@@ -666,7 +625,7 @@ class FineTune(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.val_step_outputs.append(acc)
+        self.val_step_outputs.append(acc.detach())
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -688,11 +647,11 @@ class FineTune(pl.LightningModule):
         self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
-        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1.detach(), 'test_acc5':acc5.detach()})
     
     def on_validation_epoch_end(self):
         val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
-        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        self.log('val_acc',val_acc.detach(),prog_bar=True,sync_dist=True)
         self.val_step_outputs = []
         return super().on_validation_epoch_end()
 
@@ -756,12 +715,11 @@ def train_finetune(
             gpus_per_node:int=1,
             strategy:str = "auto",
             precision:str="16-true",
-            restart:bool=False,
             if_profile:bool=False):
     # Check whether pretrained model exists. If yes, load it and skip training
     trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ft-epoch={:d}.ckpt'.format(max_epochs-1))
-    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt) and (not restart):
+    if os.path.isfile(trained_filename) and os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {trained_filename}, loading...')
         # Automatically loads the model with the saved hyperparameters
         # backbone and linear_net are ignored when saving the hyperparameters
@@ -770,7 +728,7 @@ def train_finetune(
         model = FineTune.load_from_checkpoint(trained_filename,backbone = finetune_model.backbone,linear_net = finetune_model.linear_net) 
         return model
     
-    logger_version = None if restart else 0
+    logger_version = 0
     csv_logger = CSVLogger(os.path.join(checkpoint_path,"logs"), name="csv",version=logger_version)
     tensorboard_logger = TensorBoardLogger(os.path.join(checkpoint_path,"logs"), name="tensorboard",version=logger_version)
     trainer = pl.Trainer(default_root_dir=checkpoint_path,
@@ -795,7 +753,7 @@ def train_finetune(
     trainer.logger._default_hp_metric = False  
     # continue training
     ckpt_files = get_top_n_latest_checkpoints(checkpoint_path,1)
-    if ckpt_files and (not restart):
+    if ckpt_files:
         print("loading ..." + ckpt_files[0])
         trainer.fit(finetune_model, train_loader,val_loader,ckpt_path=ckpt_files[0])
     else:
@@ -813,124 +771,3 @@ def train_finetune(
         json.dump(result,fs,indent=4)
 
     return finetune_model
-       
-       
-#########################################################
-#  KNN(K neareast neighbour)
-#########################################################
-# This class is used to test the pre-trained representation
-# no training step,only predict and test steps
-class KNN(pl.LightningModule):
-    def __init__(self,backbone:torch.nn.Module,k_nbrs:int,dist_type:str="euclidean"):
-        super().__init__()
-        self.save_hyperparameters(ignore=['backbone'])
-        self.backbone = backbone
-        self.backbone.remove_projection_head()
-        self.k = k_nbrs
-        # cosine or euclidean
-        self.dist_type = dist_type
-        self.features_local = []
-        self.labels_local = []
-        self.features  = None
-        self.labels = None
-        self.test_step_outputs = []
-        self.test_acc1 = 0.0
-        self.test_acc5 = 0.0
-    
-    def forward(self, x):
-        # Extract features from the frozen backbone
-        # Do NOT freeze backbone with nograd
-        features = self.backbone(x)
-        return self.linear_net(features)
-    def on_fit_start(self):
-        if not self.backbone:
-            raise Exception("need to set the backbone before training or validating")
-    @torch.no_grad()    
-    def predict_step(self, batch, batch_idx):
-        imgs,labels = batch
-        imgs = torch.cat(imgs,dim=0)
-        labels = torch.cat(labels,dim=0)
-        features =  self.forward(imgs)   
-        self.features_local.append(features)
-        self.labels_local.append(labels)
-        return features
-    
-    def on_test_start(self):
-        features_local = torch.cat(self.features_local,dim=0)
-        labels_local = torch.cat(self.labels_local,dim=0)
-        if dist.is_available() and dist.is_initialized():
-            ws = dist.get_world_size()
-            features_list = [torch.zeros_like(features_local) for _ in range(ws)]
-            labels_list = [torch.zeros_like(labels_local) for _ in range(ws)]
-            dist.all_gather(features_list,features_local,async_op=False)
-            dist.all_gather(labels_list,labels_local,async_op=False)
-            self.features = torch.cat(features_list,dim=0)
-            self.labels = torch.cat(labels_list,dim=0)
-        else:
-            self.features = features_local
-            self.labels = labels_local
-        if self.dist_type =="cosine":
-            self.features = F.normalize(self.features,dim=-1)
-        return super().on_test_start()
-    
-    def test_step(self, batch, batch_idx):
-        # Unpack the batch (input data and labels)
-        imgs, labels = batch
-        imgs = torch.cat(imgs,dim=0)
-        test_labels = torch.cat(labels,dim=0)  
-        # shape of preds:[B,O]
-        preds = self.forward(imgs)
-        if self.dist_type == "euclidean":
-            # shape of features = [N,O], diff: [B,N,O], 
-            diff = preds[:,None,:] - self.features[None,:,:]
-            # shape of distance =[B,N]
-            distance = torch.sum(diff**2,dim=-1)
-        elif self.dist_type == "cosine":
-            preds = F.normalize(preds,dim=-1)
-            distance = torch.matmul(preds,self.features.t())
-        # shape of indices = [B,k]
-        indices = torch.topk(-distance,self.k)
-        # for create labels of the nearest neighbour, (B,k)
-        nbr_labels = self.labels[indices]
-        acc1,acc5 = 0
-        for i, test_label in enumerate(test_labels):
-            acc1 += test_label in torch.bincount(nbr_labels[i]).topk(1).indices
-            acc5 += test_label in torch.bincount(nbr_labels[i]).topk(5).indices
-        acc1 /= test_labels.shape[0]
-        acc5 /= test_labels.shape[0]
-        self.test_step_outputs.append({'test_acc1': acc1, 'test_acc5':acc5})
-    
-    def on_test_epoch_end(self):
-        # Aggregate the losses and accuracies for the entire test set
-        avg_top1_acc = torch.stack([x['test_acc1'] for x in self.test_step_outputs]).mean()
-        avg_top5_acc = torch.stack([x['test_acc5'] for x in self.test_step_outputs]).mean()
-        # Log the aggregated metrics
-        self.log('test_acc1', avg_top1_acc,sync_dist=True)
-        self.log('test_acc5', avg_top5_acc,sync_dist=True)
-        return {'test_acc1': avg_top1_acc, 'test_acc5': avg_top5_acc}
-
-def train_knn(
-            knn_model:pl.LightningModule,
-            train_loader: torch.utils.data.DataLoader,
-            test_loader:torch.utils.data.DataLoader,
-            val_loader:torch.utils.data.DataLoader,
-            checkpoint_path:str,
-            num_nodes:int=1,
-            gpus_per_node:int=1,
-            strategy:str = "auto",
-            precision:str="16-true"):
-    
-    trainer = pl.Trainer(default_root_dir=checkpoint_path,
-                         accelerator="gpu",
-                         devices=gpus_per_node,
-                         num_nodes=num_nodes,
-                         strategy=strategy,
-                         precision=precision)
-    trainer.logger._default_hp_metric = False  
-
-    trainer.predict(knn_model,train_loader)
-    test_output = trainer.test(knn_model,test_loader)
-    result = {"test_acc1":test_output[0]["test_acc1"],
-              "test_acc5":test_output[0]["test_acc5"]}
-    with open(os.path.join(checkpoint_path,"results.json"),"w") as fs:
-        json.dump(result,fs,indent=4)
