@@ -206,7 +206,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                    standardized_to_imagenet:bool=False,
                    augment_val_set=False,
                    prefetch_factor:int=2,
-                   aug_pkg:str="torchvision"):
+                   aug_pkg:str="torchvision",
+                    skip_validation:bool=False):
     '''
     info: a dictionary provides the information of 
           1) dataset 
@@ -251,7 +252,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         # select 0 and 1 from the test dataset
         test_indices = torch.where(torch.logical_or(test_dataset.targets == 0,test_dataset.targets == 1))
         test_dataset = torch.utils.data.Subset(test_dataset,test_indices[0])
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST01 toy model")
         train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     if info["dataset"] == "MNIST":
@@ -260,7 +262,8 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         data_dir = "./datasets/mnist"
         train_dataset = datasets.MNIST(data_dir,train = True,download = True)
         test_dataset = datasets.MNIST(data_dir,train = False,download = True)
-        train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
+        if not skip_validation:
+            train_dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.9,0.1])
         print("only one tranform is applied for MNIST toy model")
         train_aug_ops = [["ToTensor","RepeatChannel"] + info["augmentations"] + ["Normalize"]]
     elif info["dataset"] == "CIFAR10":

@@ -302,7 +302,7 @@ class CLAMP(pl.LightningModule):
         self.val_step_outputs = []
     
     def log_histogram(self):
-        if self.global_step %100 != 0:
+        if self.global_step %200 != 0:
             return 
         if not hasattr(self.loss_fn,"record"):
             return
@@ -344,7 +344,6 @@ def train_clamp(model:pl.LightningModule, train_loader: torch.utils.data.DataLoa
                          profiler="simple" if if_profile else None)
     trainer.logger._default_hp_metric = False 
     # Check whether pretrained model exists and finished. If yes, load it and skip training
-    trained_filename = os.path.join(checkpoint_path, 'best_val.ckpt')
     last_ckpt = os.path.join(checkpoint_path,'ssl-epoch={:d}.ckpt'.format(max_epochs-1))
     if os.path.isfile(last_ckpt):
         print(f'Found pretrained model at {last_ckpt}, loading...')
@@ -441,11 +440,11 @@ class LinearClassification(pl.LightningModule):
         self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
-        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1.detach(), 'test_acc5':acc5.detach()})
     
     def on_validation_epoch_end(self):
         val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
-        self.log('val_acc',val_acc,prog_bar=True,sync_dist=True)
+        self.log('val_acc',val_acc.detach(),prog_bar=True,sync_dist=True)
         self.val_step_outputs = []
         return super().on_validation_epoch_end()
 
@@ -453,7 +452,7 @@ class LinearClassification(pl.LightningModule):
         # `outputs` is a list of losses from each batch returned by training_step()
         avg_loss = torch.stack([x for x in self.train_step_outputs]).mean()  # Compute the average loss for the epoch
         # Save epoch loss for future reference
-        self.log('train_epoch_loss', avg_loss, prog_bar=True,sync_dist=True)  # Log epoch loss
+        self.log('train_epoch_loss', avg_loss.detach(), prog_bar=True,sync_dist=True)  # Log epoch loss
         # refresh the iteration loss at the end of every epoch
         self.train_step_outputs = []
         # Save epoch loss for future reference
@@ -625,7 +624,7 @@ class FineTune(pl.LightningModule):
         labels = torch.cat(labels,dim=0)  
         preds = self.forward(imgs).argmax(dim=-1)
         acc = (labels == preds).float().mean()
-        self.val_step_outputs.append(acc.detach())
+        self.val_step_outputs.append(acc)
         return acc
     
     def test_step(self, batch, batch_idx):
@@ -647,7 +646,8 @@ class FineTune(pl.LightningModule):
         self.log('batch_test_loss', loss, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc1', acc1, prog_bar=True,sync_dist=True)
         self.log('batch_test_acc5', acc5, prog_bar=True,sync_dist=True)
-        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1.detach(), 'test_acc5':acc5.detach()})
+        self.test_step_outputs.append({'test_loss': loss.detach(), 'test_acc1': acc1, 'test_acc5':acc5})
+
     
     def on_validation_epoch_end(self):
         val_acc =  torch.stack([x for x in self.val_step_outputs]).mean() 
