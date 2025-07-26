@@ -61,7 +61,6 @@ class Config:
         self.DATA = {}
         self.SSL = {} # self supervised learning
         self.LC = {}  # linear classification
-        self.KNN = {} # k nearest neighbour classification
         self.SemiSL = {}  # finetune(semi-supervised learning)
         self.TL = {}  # transfer learning(freeze backbone)
         
@@ -74,7 +73,6 @@ class Config:
             self._set_options(section="LC",config = default_config)
             self._set_options(section="SemiSL",config = default_config)
             self._set_options(section="TL",config = default_config)
-            self._set_options(section="KNN",config = default_config)
         #----------------set the configuration  ----------
         self._set_options(section="INFO",config = config)
         self._set_options(section="DATA",config = config)
@@ -82,7 +80,6 @@ class Config:
         self._set_options(section="LC",config = config)
         self._set_options(section="SemiSL",config = config)
         self._set_options(section="TL",config = config)
-        self._set_options(section="KNN",config = config)
         compulsory = {  "INFO":["num_nodes","gpus_per_node"],
                         "DATA":["dataset","augmentations","n_views"],
                         "SSL":["batch_size","backbone","use_projection_head",
@@ -162,6 +159,7 @@ class Config:
             "weight_decay":"float",
             "scale_weight_decay":"boolean",
             "exclude_bn_bias_from_weight_decay":"boolean",
+            "skip_validation":"boolean",
             "lars_eta":"float",
             "loss_function":"string",
             "lw0":"float",
@@ -172,10 +170,8 @@ class Config:
             # tau is for info nce loss
             "tau":"float", 
             "warmup_epochs":"int",
-            "restart_epochs":"int",
             "n_epochs":"int",
-            "save_every_n_epochs":"int",
-            "restart_training":"boolean"
+            "save_every_n_epochs":"int"
             }
         elif section == "LC":
             options_type = {
@@ -194,7 +190,6 @@ class Config:
             "n_epochs":"int",
             "batch_size":"int",
             "save_every_n_epochs":"int",
-            "restart_training":"boolean",
             "lc_dataset":"string",
             }
         elif section == "SemiSL":
@@ -213,8 +208,7 @@ class Config:
                 "weight_decay":"float",
                 "n_epochs":"int",
                 "batch_size":"int",
-                "save_every_n_epochs":"int",
-                "restart_training":"boolean"
+                "save_every_n_epochs":"int"
             }
         elif section == "TL":
             # transfer learning(freeze the backbone)
@@ -232,14 +226,7 @@ class Config:
                 "n_epochs":"int",
                 "batch_size":"int",
                 "save_every_n_epochs":"int",
-                "dataset":"string",
-                "restart_training":"boolean"
-            }
-        elif section == "KNN":
-            options_type = {
-                "k_neighbours":"int",
-                "batch_size":"int",
-                "distance_type":"string",
+                "dataset":"string"
             }
 
         return options_type
