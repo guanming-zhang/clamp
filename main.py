@@ -39,6 +39,7 @@ if __name__ == '__main__':
                                                                                 standardized_to_imagenet=False,
                                                                                 augment_val_set = True,
                                                                                 prefetch_factor=config.INFO["prefetch_factor"],
+                                                                                skip_validation= config.SSL["skip_validation"],
                                                                                 aug_pkg = config.DATA["augmentation_package"])
 
     # setup the self-supervised learning
@@ -50,7 +51,7 @@ if __name__ == '__main__':
         prune_backbone = True
     else:
         prune_backbone = False
-    ssl_model = lightning_models.CLAP(backbone_name = config.SSL["backbone"],
+    ssl_model = lightning_models.CLAMP(backbone_name = config.SSL["backbone"],
                                   prune = prune_backbone,
                                   use_projection_head=config.SSL["use_projection_head"],
                                   proj_dim = config.SSL["proj_dim"],
@@ -64,7 +65,6 @@ if __name__ == '__main__':
                                   eta = config.SSL["lars_eta"],
                                   warmup_epochs = config.SSL["warmup_epochs"],
                                   n_epochs = config.SSL["n_epochs"],
-                                  restart_epochs = config.SSL["restart_epochs"],
                                   exclude_bn_bias_from_weight_decay = config.SSL["exclude_bn_bias_from_weight_decay"], 
                                   n_views = config.DATA["n_views"],
                                   batch_size = ssl_batch_size,
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     if not os.path.isdir(ssl_dir):
         os.makedirs(ssl_dir,exist_ok=True)
     with helper.Timer("SSL Training"):
-        ssl_model = lightning_models.train_clap(model=ssl_model, 
+        ssl_model = lightning_models.train_clamp(model=ssl_model, 
                                         train_loader = ssl_train_loader,
                                         val_loader = ssl_val_loader,
                                         max_epochs=config.SSL["n_epochs"],
@@ -89,7 +89,6 @@ if __name__ == '__main__':
                                         num_nodes = config.INFO["num_nodes"],
                                         gpus_per_node = config.INFO["gpus_per_node"], 
                                         checkpoint_path=ssl_dir,
-                                        restart = config.SSL["restart_training"],
                                         if_profile=config.INFO["if_profile"])
     backbone_ckpt = os.path.join(ssl_dir,"last_epoch_backbone_" + config.SSL["backbone"] +".ckpt")
     if not os.path.isfile(backbone_ckpt):
@@ -133,7 +132,7 @@ if __name__ == '__main__':
         # load the backbone form the latest checkpoint
         # best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
         latest_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-        ssl_model = lightning_models.CLAP.load_from_checkpoint(latest_ssl_ckpt)
+        ssl_model = lightning_models.CLAMP.load_from_checkpoint(latest_ssl_ckpt)
         ssl_model.backbone.remove_projection_head()
         ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
         lc_model = lightning_models.LinearClassification(
@@ -167,7 +166,6 @@ if __name__ == '__main__':
                 strategy = strategy,
                 num_nodes = config.INFO["num_nodes"],
                 gpus_per_node = config.INFO["gpus_per_node"], 
-                restart = config.LC["restart_training"],
                 if_profile=config.INFO["if_profile"])
         # get the best performed one
         with open(os.path.join(lc_sub_dir,"results.json")) as f:
@@ -180,55 +178,6 @@ if __name__ == '__main__':
     #save the information about the best model
     with open(os.path.join(lc_dir,"results.json"),"w") as f:
         json.dump(best,f,indent=4) 
-
-    ###################################################
-    # KNN(if KNN section exists)
-    ###################################################
-    if len(config.KNN) > 0:
-        print("---------------------KNN ----------------------------")
-        knn_batch_size = config.KNN["batch_size"] // (config.INFO["num_nodes"]*config.INFO["gpus_per_node"])
-        if config.INFO["strategy"] == "ddp":
-            strategy = "ddp_find_unused_parameters_true"
-        else:
-            strategy = config.INFO["strategy"]
-
-        data_info = {"dataset":config.DATA["dataset"],"batch_size":lc_batch_size,"n_views":1,"n_trans":1,"augmentations":["RandomResizedCrop","RandomHorizontalFlip"],
-            "crop_size":[config.DATA["crop_size"][0]],"crop_min_scale":[0.08],"crop_max_scale":[1.0],"hflip_prob":[0.5]}
-        # need to specify the location of the data for imagenet
-        if "IMAGENET1K" in config.DATA["dataset"]:
-            # add the location for imagenet dataset
-            data_info["imagenet_train_dir"] = config.DATA["imagenet_train_dir"]
-            data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
-        knn_train_loader,knn_test_loader,knn_val_loader = data_utils.get_dataloader(data_info,knn_batch_size,num_workers=config.INFO["cpus_per_gpu"],
-                                                                                 standardized_to_imagenet=config.KNN["standardize_to_imagenet"],
-                                                                                 prefetch_factor=config.INFO["prefetch_factor"])
-        knn_dir = os.path.join(config.loc,"knn")
-        if not os.path.isdir(knn_dir):
-            os.makedirs(knn_dir,exist_ok=True)
-            
-        # load the backbone from the checkpoint
-        #best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
-        #ssl_model = lightning_models.CLAP.load_from_checkpoint(best_ssl_ckpt)
-        latest_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-        ssl_model = lightning_models.CLAP.load_from_checkpoint(latest_ssl_ckpt)
-        ssl_model.backbone.remove_projection_head()
-        # convert batch norm to sync batch norm
-        if config.INFO["num_nodes"]*config.INFO["gpus_per_node"] > 1:
-            ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)
-        knn_model = lightning_models.FineTune(backbone = ssl_model.backbone,
-                                                k_nbrs = config.KNN["k_neighbours"],
-                                                distance_type = config.KNN["distance_type"])
-
-        lightning_models.train_knn(knn_model = knn_model,
-                                    train_loader = knn_train_loader,
-                                    test_loader = knn_test_loader,
-                                    val_loader = None,
-                                    checkpoint_path = knn_dir,
-                                    num_nodes = config.INFO["num_nodes"],
-                                    gpus_per_node = config.INFO["gpus_per_node"],
-                                    strategy = strategy,
-                                    precision = config.INFO["precision"])
-
 
     ###################################################
     # Semi-supervised learning(if SemiSL section exists)
@@ -268,7 +217,7 @@ if __name__ == '__main__':
                 # load the backbone form the latest checkpoint
                 # best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 latest_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-                ssl_model = lightning_models.CLAP.load_from_checkpoint(latest_ssl_ckpt)
+                ssl_model = lightning_models.CLAMP.load_from_checkpoint(latest_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
                 ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
                 # convert batch norm to sync batch norm
@@ -299,7 +248,6 @@ if __name__ == '__main__':
                                                         strategy = strategy,
                                                         num_nodes = config.INFO["num_nodes"],
                                                         gpus_per_node = config.INFO["gpus_per_node"],
-                                                        restart = config.SemiSL["restart_training"],
                                                         if_profile=config.INFO["if_profile"])
             # get the best performed one
             with open(os.path.join(semisl_sub_dir,"results.json")) as f:
@@ -354,7 +302,7 @@ if __name__ == '__main__':
                 # load the backbone form the latest checkpoint
                 # best_ssl_ckpt = os.path.join(ssl_dir,"best_val.ckpt")
                 latest_ssl_ckpt = lightning_models.get_top_n_latest_checkpoints(ssl_dir,1)[0]
-                ssl_model = lightning_models.CLAP.load_from_checkpoint(latest_ssl_ckpt)
+                ssl_model = lightning_models.CLAMP.load_from_checkpoint(latest_ssl_ckpt)
                 ssl_model.backbone.remove_projection_head()
                 ssl_model.backbone = torch.nn.SyncBatchNorm.convert_sync_batchnorm(ssl_model.backbone)  
                 # convert batch norm to sync batch norm for ddp traning
@@ -386,7 +334,6 @@ if __name__ == '__main__':
                                                     strategy = strategy,
                                                     num_nodes = config.INFO["num_nodes"],
                                                     gpus_per_node = config.INFO["gpus_per_node"],
-                                                    restart = config.TL["restart_training"],
                                                     if_profile=config.INFO["if_profile"])
                 # get the best performed one
                 with open(os.path.join(tl_sub_dir,"results.json")) as f:
