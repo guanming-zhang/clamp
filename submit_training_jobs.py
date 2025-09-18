@@ -23,7 +23,7 @@ class JobManager:
                            "MEM_PER_NODE":"6GB",
                            "PYTHON_EXE":"main.py",
                            "ARG1":"[input_dir_path]",
-                           "ARG2":default_config_path}
+                           "ARG2":""}
         self.default_comp_res = True
     def print_config(self,config:configparser.ConfigParser):
         for section in config.sections():

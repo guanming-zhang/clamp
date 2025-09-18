@@ -10,6 +10,7 @@ from model import lightning_models
 import math
 import json
 import pytorch_lightning as pl
+import gc
 if __name__ == '__main__':
     input_dir= sys.argv[1]
     default_config_file = sys.argv[2]
@@ -93,6 +94,35 @@ if __name__ == '__main__':
     backbone_ckpt = os.path.join(ssl_dir,"last_epoch_backbone_" + config.SSL["backbone"] +".ckpt")
     if not os.path.isfile(backbone_ckpt):
         torch.save(ssl_model.backbone.net.state_dict(),backbone_ckpt)
+
+    ###################################################
+    # clear the memeory
+    ###################################################
+    # --- CHANGE: move pretraining model off-GPU and drop references
+    try:
+        ssl_model.backbone.cpu()
+        ssl_model.cpu()
+    except Exception:
+        pass
+    del ssl_train_loader
+    del ssl_test_loader
+    del ssl_val_loader
+    # --- CHANGE: aggressively free optimizer/scheduler/grad graph held by ssl_model
+    try:
+        del ssl_model.optim
+    except Exception:
+        pass
+    try:
+        del ssl_model.lr_scheduler
+    except Exception:
+        pass
+    del ssl_model
+    # --- CHANGE: sync across ranks before emptying caches to avoid races
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.barrier()
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     ###################################################
     # linear classification
     ###################################################
@@ -175,6 +205,14 @@ if __name__ == '__main__':
             best["best_test_acc5"] = result["test_acc5"] 
             best["best_test_loss"] = result["test_loss"]
             best["best_model_dir"] = lc_sub_dir
+    # clear the memory
+    del lc_train_loader
+    del lc_test_loader
+    del lc_val_loader
+    del lc_model
+    gc.collect()
+    torch.cuda.empty_cache()
+        
     #save the information about the best model
     with open(os.path.join(lc_dir,"results.json"),"w") as f:
         json.dump(best,f,indent=4) 
@@ -197,6 +235,7 @@ if __name__ == '__main__':
             data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
             semisl_train_loader,semisl_test_loader,semisl_val_loader = data_utils.get_dataloader(data_info,semisl_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                                  standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"],
+                                                                                 skip_validation= True,
                                                                                  prefetch_factor=config.INFO["prefetch_factor"])
             semisl_dir = os.path.join(config.loc,"semisl-"+dataset)
             if not os.path.isdir(semisl_dir):

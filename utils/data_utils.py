@@ -382,11 +382,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
             elif aug_pkg == "torchvision":
                 train_dataset = datasets.ImageFolder(root=train_dir)
                 test_dataset = datasets.ImageFolder(root=val_dir)
-            if not skip_validation:
-                _dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
-            print("imagenet-simclr subdataset")
-            print("length of valdataset")
-            print(len(val_dataset))
+            
             # code taken from https://github.com/facebookresearch/swav/blob/main/eval_semisup.py
             # take either 1% or 10% of images
             subset_file = urllib.request.urlopen("https://raw.githubusercontent.com/google-research/simclr/master/imagenet_subsets/" + str(percentage) + "percent.txt")
@@ -395,6 +391,10 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
                 os.path.join(train_dir, li.split('_')[0], li),
                 train_dataset.class_to_idx[li.split('_')[0]]
             ) for li in list_imgs]
+            # it is important to note that random splitting training set first 
+            # and then sample the 1% images will cause error
+            if not skip_validation:
+                _dataset,val_dataset = torch.utils.data.random_split(train_dataset,[0.99,0.01])
     elif info["dataset"] == "IMAGENET100":
         if "imagenet_train_dir" in info:
             train_dir = info["imagenet_train_dir"]
@@ -455,7 +455,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
     if skip_validation:
         val_loader = None
     else:
-        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
+        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
         if len(val_dataset) < batch_size:
             print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
