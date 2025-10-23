@@ -21,7 +21,6 @@ class JobManager:
                            "CONDA_ENV":"dl_env",
                            "TIME":"100:00:00",
                            "MEM_PER_NODE":"6GB",
-                           "PYTHON_EXE":"main.py",
                            "ARG1":"[input_dir_path]",
                            "ARG2":default_config_path}
         self.default_comp_res = True
@@ -133,7 +132,7 @@ class JobManager:
                 base_batch_dict["ARG1"] = dir_path
                 base_batch_dict.update(batch_dict)
                 self.create_sbatch_file(base_batch_dict)
-                #self.submit_sbatch()
+                self.submit_sbatch()
                 count += 1
     def hours_from_starting(self,dir_path):
         def get_est_time_now():
@@ -153,16 +152,8 @@ class JobManager:
         for folder in folder_list:
             folder_path = os.path.join(base_dir,folder)
             flag = True
-            if not "run" in folder:
-                flag = False
-            if os.path.isfile(os.path.join(folder_path,"lc","results.json")):
-                flag = False
-            if os.path.isfile(os.path.join(folder_path,"starting-time.txt")) and self.hours_from_starting(folder_path) < hours_before:
-                flag = False
-            if not os.path.isdir(os.path.join(folder_path,"ssl")):
-                flag = True
-            if not flag:
-                continue
+            #if not "dir0" in folder:
+            #    continue
             config = configparser.ConfigParser()
             config.read(os.path.join(folder_path,"config.ini"))
             num_nodes = config["INFO"].getint("num_nodes")
@@ -179,6 +170,7 @@ class JobManager:
         
         
 if __name__ == "__main__":
+    '''
     ########################################
     # cifar10
     ########################################
@@ -193,20 +185,28 @@ if __name__ == "__main__":
     jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
     #jm.submit("./simulations/cifar10/resnet18/linear/grid_search1",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
     #jm.continue_prev_submit("./simulations/cifar10/resnet18/linear/grid_search1",{"TIME":"30:55:00","MEM_PER_NODE":"6GB"})
-    jm.submit("./test",options,{"TIME":"47:55:00","MEM_PER_NODE":"6GB"})
+    jm.submit("./test",options,{"TIME":"47:55:00","MEM_PER_NODE":"12GB"})
     '''
+    
     ########################################
     # imagenet1k
     ########################################
     # for resnet+batch size=256+cifat10, need around 3GB mem per GPU, 3GB*gpus_per_node per node
     # around 5 minutes per epoch
     # if batch size is too small or num_cpus is too low then GPU utility will be low
-    jm = JobManager("./default_configs/default_config_imagenet1k.ini")
-    options = {"DATA":{"n_views":[8]},
-               "SSL":{"lr":[0.1,0.2],"batch_size":[64],"n_epochs":[2],"warmup_epochs":[1],"save_every_n_epochs":[1]},
-               "LC":{"lr":[0.2]}}
+    #jm = JobManager("./default_configs/default_config_imagenet1k.ini")
+    #options = {"DATA":{"n_views":[4],"dataset":["IMAGENET1K"]},
+    #           "SSL":{"lr":[1.1,1.1,1.1],"batch_size":[512],"rs":[8.5],"n_epochs":[100]}}
     # cpus_per_taks is equivalent to cpus_per_gpu in our setting
-    jm.set_computation_resource(num_nodes=1,gpus_per_node=2,cpus_per_gpu=4,gres="gpu")
-    jm.submit("./simulations/imagenet/linear/test1",options,{"TIME":"12:30:00","MEM_PER_NODE":"16GB"})
-    '''
+    #jm.set_computation_resource(num_nodes=2,gpus_per_node=4,cpus_per_gpu=12,gres="gpu")
+    
+    jm = JobManager("./default_configs/default_config_imagenet1k_test.ini")
+    options = {"DATA":{"n_views":[4],"dataset":["IMAGENET1K"]},
+               "SSL":{"lr":[1.1],"batch_size":[256],"rs":[8.5],"n_epochs":[3]}}
+    # cpus_per_taks is equivalent to cpus_per_gpu in our setting
+    jm.set_computation_resource(num_nodes=2,gpus_per_node=4,cpus_per_gpu=12,gres="gpu")
+    jm.submit("./simulations/imagenet/test",options,{"TIME":"47:30:00","MEM_PER_NODE":"120GB"})
+    
+    #jm.continue_prev_submit("./simulations/imagenet/linear/semi_sl_4views",{"TIME":"12:55:00","MEM_PER_NODE":"120GB"})
+    #jm.continue_prev_submit("./simulations/imagenet/linear/semi_sl_8views",{"TIME":"12:55:00","MEM_PER_NODE":"120GB"})
     
