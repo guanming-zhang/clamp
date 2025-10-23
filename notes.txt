@@ -1,0 +1,12 @@
+Greene
+ssh gz2241@greene.hpc.nyu.edu
+sudo sshfs -o allow_other gz2241@216.165.13.137:/scratch/gz2241/ /home/richard/HPC-Scratch
+
+Empire
+ssh gz2241@alpha.empire-ai.org
+sudo sshfs -o allow_other gz2241@67.99.173.2:/mnt/home/gz2241 /home/richard/Empire-home/
+
+wget imagenet
+1) wget https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar --no-check-certificate
+2) wget https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_val.tar --no-check-certificate
+
