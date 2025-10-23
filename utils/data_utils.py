@@ -456,7 +456,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
     if skip_validation:
         val_loader = None
     else:
-        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=True,drop_last=True,
+        val_loader = torch.utils.data.DataLoader(val_dataset,batch_size = batch_size,shuffle=False,drop_last=True,
                                                  num_workers = num_workers,pin_memory=True,persistent_workers=True,prefetch_factor=prefetch_factor)
         if len(val_dataset) < batch_size:
             print("Validation dataset is smaller than batch size, it may cause error. Try decreasing the batch size")
