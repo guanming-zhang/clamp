@@ -235,7 +235,7 @@ if __name__ == '__main__':
             data_info["imagenet_val_dir"] = config.DATA["imagenet_val_dir"]
             semisl_train_loader,semisl_test_loader,semisl_val_loader = data_utils.get_dataloader(data_info,semisl_batch_size,num_workers=config.INFO["cpus_per_gpu"],
                                                                                  standardized_to_imagenet=config.SemiSL["standardize_to_imagenet"],
-                                                                                 skip_validation= True,
+                                                                                 skip_validation= config.SemiSL["skip_validation"],
                                                                                  prefetch_factor=config.INFO["prefetch_factor"])
             semisl_dir = os.path.join(config.loc,"semisl-"+dataset)
             if not os.path.isdir(semisl_dir):

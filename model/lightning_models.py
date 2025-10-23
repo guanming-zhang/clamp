@@ -145,6 +145,8 @@ class CLAMP(pl.LightningModule):
             #cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs - self.hparams.warmup_epochs)
             #scheduler = optim.lr_scheduler.SequentialLR(optimizer,schedulers=[linear, cosine], milestones=[self.hparams.warmup_epochs])
             scheduler = lr_scheduler.LinearWarmupCosineAnnealingLR(optimizer,warmup_epochs=self.hparams.warmup_epochs,max_epochs=self.hparams.n_epochs)
+        elif self.hparams.scheduler_name == "cosine":
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=self.hparams.n_epochs)
         elif self.hparams.scheduler_name == "multi_step":
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                     milestones=[int(self.hparams.n_epochs*0.6),

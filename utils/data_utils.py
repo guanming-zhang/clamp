@@ -402,6 +402,7 @@ def get_dataloader(info:dict,batch_size:int,num_workers:int,
         else:
             train_dir = "./datasets/imagenet100/train.lmdb"
             val_dir =  "./datasets/imagenet100/val.lmdb"
+        print(info)
         mean= [0.485, 0.456, 0.406]
         std= [0.229, 0.224, 0.225]
         if train_dir.endswith("lmdb") and val_dir.endswith("lmdb"):

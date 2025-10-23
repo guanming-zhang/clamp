@@ -46,6 +46,7 @@ class Timer:
 class Config:
     def __init__(self,input_dir:str,default_config_file:str=""):
         input_file= os.path.join(input_dir,'config.ini')
+        print(input_file)
         if not os.path.isfile(input_file):
             raise FileNotFoundError("The input file" + input_file + "does not exist")
         config = configparser.ConfigParser()
