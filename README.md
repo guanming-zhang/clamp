@@ -1,11 +1,11 @@
-Contrastive Self-Supervised Learning As Manifold Packing (CLAMP)
+Contrastive Self-Supervised Learning As Neural Manifold Packing (CLAMP)
 ---------------------------------------------------------------
 This repo contains the implementation for the paper contrastive self-supervised learning as neural manifold packing (NeurIPS2025 maintrack) by [Guanming Zhang](https://scholar.google.com/citations?user=_QRwl9sAAAAJ&hl=en), [David J. Heeger](https://scholar.google.com/citations?user=6ggnUzYAAAAJ&hl=en) and [Stefano Martiniani](https://scholar.google.com/citations?user=pxSj9JkAAAAJ&hl=en).
 
 --------------------
 We introduce Contrastive Learning As Manifold Packing (CLAMP), a self-supervised framework that recasts representation learning as a manifold packing problem. CLAMP introduces a loss function inspired by the potential energy of short-range repulsive particle systems, such as those encountered in the physics of simple liquids and jammed packings. In this framework, each class consists of sub-manifolds embedding multiple augmented views of a single image. The sizes and positions of the sub-manifolds are dynamically optimized by following the gradient of a packing loss. This approach yields interpretable dynamics in the embedding space that parallel jamming physics, and introduces geometrically meaningful hyperparameters within the loss function.  
 
-The archetecture is illustrated by the figure below.
+The architecture is illustrated by the figure below.
 
 <img src="assets/clap_architechture.jpeg" alt="drawing" width="800"/>
 
@@ -49,21 +49,21 @@ The training and evaluation pipeline consists of three stages:
 3 semi-supervised learning.
 
 All training configurations and parameters for these tasks are defined in a single configuration file. Each task section is labeled as [SSL], [LC], or [SemiSL]. Any section that is absent will be skipped during training or evaluation. Note that the [SSL] section is mandatory, as all other tasks require either training or loading the self-supervised model.
-## The First step
+## The first step
 
 1 create a folder e.g. mkdir ./test .
 
 2 write the config file(config.ini) inside the folder
 
-3 prepare datasets, for CIFAR10, the data will be automatcally downloaded to ./datasets
+3 prepare datasets, for CIFAR10, the data will be automatically downloaded to ./datasets
   for ImageNet-1K and ImageNet-100, you need to specify the imagenet_train_dir=... and imagenet_val_dir=... in the data session. 
-  see  https://github.com/HobbitLong/CMC/blob/master/imagenet100.txt for ImageNet100 labels or use scripts/imagenet100_subset.py for ImageNet100 labels.
+  see  https://github.com/HobbitLong/CMC/blob/master/imagenet100.txt for ImageNet100 labels or use scripts/imagenet100_subset.py for ImageNet-100 labels.
 ## Self-supervised pretraining
 Use the following command to run the training:
 ```
 python pretrain.py /path/to/directory /path/to/default_config.ini
 ```
-where we use config files(config_file.ini and default_config.ini) to spcify the training setup and hyperparameters. /path/to/directory must contain the input configureation, config.ini (its name must be config.ini). Missing parameters in your_config.ini will be replaced by its default value specified in default_config.ini. Note that directory to your own imagenet training and validation dataset needs to be specified in either config.ini. Pytorchlightning checkpoints and tensorboard/csv logging file are strored in /path/to/directory .
+where we use config files(config_file.ini and default_config.ini) to specify the training setup and hyperparameters. /path/to/directory must contain the input configureation, config.ini (its name must be config.ini). Missing parameters in your_config.ini will be replaced by its default value specified in default_config.ini. Note that directory to your own imagenet training and validation dataset needs to be specified in either config.ini. PyTorch Lightning checkpoints and TensorBoard/CSV logging files are stored in /path/to/directory .
 
 ## Linear evaluation
 Once the pretraining is done, use the following command to load the pretrained model and conduct linear evaluation.
@@ -72,7 +72,7 @@ python linear_probe.py /path/to/pretrained_model /path/to/default_config.ini
 ```
 
 ## Semi-supervised learning
-Once the pretraining is done, use the following command to for the semi-supervised learning(only ImageNet-1K is supported).
+Once the pretraining is done, use the following command for semi-supervised learning (only ImageNet-1K is supported).
 ```
 python semi_sl.py /path/to/pretrained_model /path/to/default_config.ini
 ```
@@ -80,9 +80,9 @@ python semi_sl.py /path/to/pretrained_model /path/to/default_config.ini
 See /examples for training setups applied in the paper.
 To run the example file for training ImageNet-1K:
 ```
-python pretrain.py /examples/imagenet1k-4views /default_cofigs/default_config_imagenet1k.ini
-python linear_probe.py /examples/imagenet1k-4views /default_cofigs/default_config_imagenet1k.ini
-python semi_sl.py /examples/imagenet1k-4views /default_cofigs/default_config_imagenet1k.ini
+python pretrain.py /examples/imagenet1k-4views /default_configs/default_config_imagenet1k.ini
+python linear_probe.py /examples/imagenet1k-4views /default_configs/default_config_imagenet1k.ini
+python semi_sl.py /examples/imagenet1k-4views /default_configs/default_config_imagenet1k.ini
 ```
 
 ## Slurm submission
@@ -98,5 +98,5 @@ lmdb <br/>
 pytorch 2.5.1 <br/>
 pytrochlightning 2.4.0 <br/>
 tensorboard <br/>
-albumentation 1.4.24
+albumentations 1.4.24
 
