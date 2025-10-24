@@ -182,6 +182,6 @@ if __name__ == '__main__':
                     best["best_test_acc5"] = result["test_acc5"] 
                     best["best_test_loss"] = result["test_loss"]
                     best["best_model_dir"] = semisl_sub_dir
-        #save the information about the best model
-        with open(os.path.join(semisl_dir,"best_result.json"),"w") as f:
-            json.dump(best,f,indent=4)  
+            #save the information about the best model
+            with open(os.path.join(semisl_dir,"best_result.json"),"w") as f:
+                json.dump(best,f,indent=4)  
